@@ -15,6 +15,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+	<Using Include="System.IO" />
+	<Using Include="System.Linq" />
+	<Using Include="System.Threading.Tasks" />
     <ProjectReference Include="..\ReceiptCapture.Core\ReceiptCapture.Core.csproj" />
   </ItemGroup>
 
