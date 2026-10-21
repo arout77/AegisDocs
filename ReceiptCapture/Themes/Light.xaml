@@ -1,0 +1,19 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- Light palette. Dark.xaml defines exactly the same keys with different colours;
+         the app swaps one for the other at runtime (see AppTheme.cs). -->
+    <SolidColorBrush x:Key="BgBrush" Color="#F3F4F9"/>
+    <SolidColorBrush x:Key="CardBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="SurfaceAltBrush" Color="#F6F7FC"/>
+    <SolidColorBrush x:Key="ViewerBgBrush" Color="#E6E8F1"/>
+    <SolidColorBrush x:Key="LineBrush" Color="#E3E6EF"/>
+    <SolidColorBrush x:Key="InkBrush" Color="#12141D"/>
+    <SolidColorBrush x:Key="MutedBrush" Color="#6A7186"/>
+    <SolidColorBrush x:Key="AccentBrush" Color="#4F46E5"/>
+    <SolidColorBrush x:Key="AccentHoverBrush" Color="#4338CA"/>
+    <SolidColorBrush x:Key="AccentSoftBrush" Color="#EEF0FF"/>
+    <SolidColorBrush x:Key="OnAccentBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="WarnBrush" Color="#D97706"/>
+    <SolidColorBrush x:Key="DangerBrush" Color="#D92D20"/>
+    <SolidColorBrush x:Key="HoverBrush" Color="#EDEFF8"/>
+</ResourceDictionary>

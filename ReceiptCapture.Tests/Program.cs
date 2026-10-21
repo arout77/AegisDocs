@@ -3,6 +3,8 @@ using ReceiptCapture.Core;
 using ReceiptCapture.Core.Documents;
 using ReceiptCapture.Core.Export;
 using ReceiptCapture.Core.Parsing;
+using ReceiptCapture.Core.Pdf;
+using ReceiptCapture.Core.Redaction;
 using ReceiptCapture.Core.Storage;
 
 int passed = 0, failed = 0;
@@ -175,6 +177,115 @@ Check("rename duplicate 1", dupes[0].NewName, "same.pdf");
 Check("rename duplicate 2", dupes[1].NewName, "same (2).pdf");
 Check("rename duplicate 3", dupes[2].NewName, "same (3).pdf");
 Check("rename case-insensitive duplicate", RenamePlanner.Plan(new[] { "a.pdf", "b.pdf" }, "X", 1, when)[1].NewName, "X (2).pdf");
+
+// ---------- 13. Sensitive data finder ----------
+var allOn = new FindOptions();
+List<(SensitiveKind Kind, string Text)> Found(string text, FindOptions? o = null)
+    => SensitiveDataFinder.Find(text, o ?? allOn).Select(m => (m.Kind, text.Substring(m.Start, m.Length))).ToList();
+
+Check("ssn found", Found("SSN 123-45-6789 on file")[0], (SensitiveKind.Ssn, "123-45-6789"));
+Check("ssn with spaces", Found("123 45 6789")[0].Kind, SensitiveKind.Ssn);
+foreach (var bad in new[] { "000-12-3456", "666-12-3456", "912-34-5678", "123-00-4567", "123-45-0000" })
+    Check("ssn rejects " + bad, Found(bad).Count(f => f.Kind == SensitiveKind.Ssn), 0);
+
+foreach (var phone in new[] { "(555) 123-4567", "555-123-4567", "555.123.4567", "+1 555 123 4567", "5551234567" })
+    Check("phone " + phone, Found("Call " + phone + " now").Any(f => f.Kind == SensitiveKind.Phone && f.Text.Contains("4567")), true);
+Check("short number is not a phone", Found("Invoice 12345").Count, 0);
+Check("ssn is not a phone", Found("123-45-6789").Count(f => f.Kind == SensitiveKind.Phone), 0);
+
+Check("email", Found("write to jane.doe+law@firm-co.com today")[0], (SensitiveKind.Email, "jane.doe+law@firm-co.com"));
+
+var card = Found("Card 4111 1111 1111 1111 exp 12/27");
+Check("valid card found", card.Count(f => f.Kind == SensitiveKind.CreditCard), 1);
+Check("valid card not also a phone", card.Count(f => f.Kind == SensitiveKind.Phone), 0);
+Check("invalid card (fails Luhn) ignored", Found("Card 4111 1111 1111 1112").Count(f => f.Kind == SensitiveKind.CreditCard), 0);
+
+Check("dob numeric (label excluded)", Found("DOB: 03/14/1985")[0], (SensitiveKind.DateOfBirth, "03/14/1985"));
+Check("dob long form", Found("Date of Birth March 14, 1985")[0].Text, "March 14, 1985");
+Check("dob 'born on'", Found("born on 14 March 1985")[0].Text, "14 March 1985");
+Check("unlabelled date is not a dob", Found("Filed 03/14/2025").Count, 0);
+
+var custom = new FindOptions { Ssn = false, Phone = false, Email = false, CreditCard = false, DateOfBirth = false,
+    CustomTerms = new[] { "acme  corp", "Bob" } };
+Check("custom term, case and spacing flexible", Found("ACME Corp sued Acme Corp.", custom).Count, 2);
+Check("custom term respects word boundaries", Found("Bobby and Bob", custom).Count, 1);
+Check("custom term across a line wrap", Found("Acme\nCorp", custom).Count, 1);
+Check("option off means not found", Found("555-123-4567", new FindOptions { Phone = false }).Count, 0);
+
+// ---------- 14. Mapping OCR words to boxes ----------
+var words = new List<WordBox>
+{
+    new("Call", 100, 50, 40, 20, 0), new("me", 150, 50, 30, 20, 0), new("at", 190, 50, 20, 20, 0),
+    new("(555)", 220, 50, 60, 20, 0), new("123-4567", 290, 50, 90, 20, 0),
+    new("Thanks", 100, 90, 70, 20, 1),
+};
+var regions = RedactionMapper.FindRegions(2, words, allOn);
+Check("one phone region", regions.Count, 1);
+Check("region kind", regions[0].Kind, (SensitiveKind?)SensitiveKind.Phone);
+Check("region page", regions[0].Page, 2);
+Check("region text", regions[0].MatchedText, "(555) 123-4567");
+Check("region left (padded)", regions[0].X, 217.0);
+Check("region top (padded)", regions[0].Y, 47.0);
+Check("region width covers both words", regions[0].Width, 380.0 + 3 - 217.0);
+Check("region height", regions[0].Height, 26.0);
+Check("regions start approved", regions[0].Approved, true);
+Check("label mentions page and kind", regions[0].Label, "p3 · Phone · (555) 123-4567");
+
+var nearEdge = RedactionMapper.FindRegions(0, new List<WordBox> { new("a@b.co", 1, 1, 50, 10, 0) }, allOn);
+Check("padding never goes off the page", nearEdge[0].X >= 0 && nearEdge[0].Y >= 0, true);
+
+var wrapped = RedactionMapper.FindRegions(0, new List<WordBox>
+    { new("Acme", 10, 10, 40, 12, 0), new("Corp", 10, 30, 40, 12, 1) }, custom);
+Check("match over a line break gets one box per line", wrapped.Count, 2);
+
+// ---------- 15. Verifier ----------
+Check("leak found despite formatting", RedactionVerifier.FindLeaks("ssn 123 45 6789 here", new[] { "123-45-6789" }).Count, 1);
+Check("no leak on a clean page", RedactionVerifier.FindLeaks("nothing to see", new[] { "123-45-6789", "Acme Corp" }).Count, 0);
+Check("very short terms are ignored", RedactionVerifier.FindLeaks("xx", new[] { "xx" }).Count, 0);
+Check("leak check is case-insensitive", RedactionVerifier.FindLeaks("ACME CORP", new[] { "acme corp" }).Count, 1);
+
+// ---------- 16. Image-only PDF writer ----------
+var jpeg = Convert.FromBase64String("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAgABgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDgKKKK+eP2EKKKKACiiigAooooA//Z");
+var pdfStream = new MemoryStream();
+ImagePdfWriter.Write(pdfStream, new[]
+{
+    new PdfPageImage(jpeg, 24, 32, 612, 792),
+    new PdfPageImage(jpeg, 24, 32, 595.28, 841.89),
+});
+var pdfBytes = pdfStream.ToArray();
+var pdfText = System.Text.Encoding.Latin1.GetString(pdfBytes);
+Check("pdf header", pdfText.StartsWith("%PDF-1.4"), true);
+Check("pdf trailer", pdfText.EndsWith("%%EOF\n"), true);
+Check("pdf page count", pdfText.Contains("/Count 2"), true);
+Check("pdf has no text operators or fonts", pdfText.Contains("/Font") || pdfText.Contains("BT\n"), false);
+Check("pdf has no metadata dictionary", pdfText.Contains("/Info") || pdfText.Contains("/Producer"), false);
+
+int sx = pdfText.LastIndexOf("startxref\n", StringComparison.Ordinal);
+long xrefPos = long.Parse(pdfText.Substring(sx + 10, pdfText.IndexOf('\n', sx + 10) - (sx + 10)));
+Check("startxref points at xref", pdfText.Substring((int)xrefPos, 4), "xref");
+int entriesStart = pdfText.IndexOf("\n0 ", (int)xrefPos, StringComparison.Ordinal) + 1;
+int headerEnd = pdfText.IndexOf('\n', entriesStart) + 1;
+int objectTotal = int.Parse(pdfText.Substring(entriesStart + 2, headerEnd - entriesStart - 3));
+Check("xref object count", objectTotal, 9);
+bool xrefOk = true;
+for (int i = 1; i < objectTotal; i++)
+{
+    var entry = pdfText.Substring(headerEnd + 20 * i, 20);
+    int off = int.Parse(entry[..10]);
+    if (!pdfText.Substring(off).StartsWith($"{i} 0 obj")) xrefOk = false;
+}
+Check("every xref offset lands on its object", xrefOk, true);
+
+var keep = Environment.GetEnvironmentVariable("RC_WRITE_PDF");
+if (!string.IsNullOrEmpty(keep)) File.WriteAllBytes(keep, pdfBytes);
+
+Check("writer rejects zero pages", ThrowsArg(() => ImagePdfWriter.Write(new MemoryStream(), Array.Empty<PdfPageImage>())), true);
+Check("writer rejects an empty image", ThrowsArg(() => ImagePdfWriter.Write(new MemoryStream(), new[] { new PdfPageImage(Array.Empty<byte>(), 1, 1, 10, 10) })), true);
+
+static bool ThrowsArg(Action a)
+{
+    try { a(); return false; } catch (ArgumentException) { return true; }
+}
 
 Console.WriteLine($"\n{passed} passed, {failed} failed");
 return failed == 0 ? 0 : 1;

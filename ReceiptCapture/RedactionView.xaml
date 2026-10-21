@@ -1,0 +1,187 @@
+<UserControl x:Class="ReceiptCapture.RedactionView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:ReceiptCapture"
+             Background="{DynamicResource BgBrush}"
+             AllowDrop="True"
+             PreviewDragOver="View_PreviewDragOver"
+             PreviewDrop="View_PreviewDrop">
+
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <local:BytesToImageConverter x:Key="BytesToImage"/>
+
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+
+        <!-- Approved boxes look like the black bars they will become; excluded ones are just outlined. -->
+        <Style x:Key="RegionBox" TargetType="Border">
+            <Setter Property="Background" Value="#CC000000"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource DangerBrush}"/>
+            <Setter Property="BorderThickness" Value="3"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Approved}" Value="False">
+                    <Setter Property="Background" Value="#1A000000"/>
+                    <Setter Property="BorderBrush" Value="{DynamicResource MutedBrush}"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Margin="16">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="16"/>
+            <ColumnDefinition Width="340"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- ================= LEFT: page viewer ================= -->
+        <Border Grid.Column="0" Style="{StaticResource Card}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0" Margin="0,0,0,10">
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="Open PDF…" Style="{StaticResource PrimaryButton}"
+                                Command="{Binding OpenCommand}"/>
+                        <Button Content="Previous" Style="{StaticResource SecondaryButton}"
+                                Command="{Binding PrevPageCommand}" Margin="16,0,0,0"/>
+                        <TextBlock Text="{Binding PageLabel}" VerticalAlignment="Center" MinWidth="90"
+                                   TextAlignment="Center" Margin="8,0" FontWeight="SemiBold"/>
+                        <Button Content="Next" Style="{StaticResource SecondaryButton}"
+                                Command="{Binding NextPageCommand}"/>
+                    </StackPanel>
+                    <ProgressBar IsIndeterminate="True" Height="3" Width="140" HorizontalAlignment="Right"
+                                 VerticalAlignment="Center"
+                                 Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}"/>
+                </Grid>
+
+                <Border Grid.Row="1" Background="{DynamicResource ViewerBgBrush}" CornerRadius="10" ClipToBounds="True">
+                    <Grid>
+                        <!-- The Viewbox shrinks the page to fit the window. Everything inside is measured in
+                             page-image pixels, so box positions need no scaling maths. -->
+                        <Viewbox Stretch="Uniform" Margin="8"
+                                 Visibility="{Binding HasDocument, Converter={StaticResource BoolToVis}}">
+                            <Grid Width="{Binding PageWidth}" Height="{Binding PageHeight}" Background="White">
+                                <Image Stretch="Fill"
+                                       Source="{Binding CurrentPagePng, Converter={StaticResource BytesToImage}}"/>
+
+                                <!-- Layer 1: catches drags on empty page area to draw a new box -->
+                                <Canvas x:Name="DrawCanvas" Background="Transparent" Cursor="Cross"
+                                        MouseLeftButtonDown="DrawCanvas_MouseLeftButtonDown"
+                                        MouseMove="DrawCanvas_MouseMove"
+                                        MouseLeftButtonUp="DrawCanvas_MouseLeftButtonUp">
+                                    <Rectangle x:Name="PreviewRect" Visibility="Collapsed"
+                                               Stroke="#DC2626" StrokeThickness="3" StrokeDashArray="4 2" Fill="#33DC2626"/>
+                                </Canvas>
+
+                                <!-- Layer 2: the found / drawn boxes (click toggles, right-click removes hand-drawn) -->
+                                <ItemsControl ItemsSource="{Binding CurrentRegions}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <Canvas/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemContainerStyle>
+                                        <Style TargetType="ContentPresenter">
+                                            <Setter Property="Canvas.Left" Value="{Binding X}"/>
+                                            <Setter Property="Canvas.Top" Value="{Binding Y}"/>
+                                        </Style>
+                                    </ItemsControl.ItemContainerStyle>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Style="{StaticResource RegionBox}"
+                                                    Width="{Binding Width}" Height="{Binding Height}"
+                                                    ToolTip="{Binding Label}"
+                                                    MouseLeftButtonDown="Region_MouseLeftButtonDown"
+                                                    MouseRightButtonDown="Region_MouseRightButtonDown"/>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </Grid>
+                        </Viewbox>
+
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"
+                                    Visibility="{Binding NoDocument, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="Open or drop a PDF to begin" FontSize="18" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource MutedBrush}" HorizontalAlignment="Center"/>
+                            <TextBlock Style="{StaticResource Hint}" HorizontalAlignment="Center" TextAlignment="Center"
+                                       Margin="0,6,0,0" MaxWidth="420"
+                                       Text="Scanned or digital, it makes no difference. Pages are read on this PC; nothing is uploaded."/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <TextBlock Grid.Row="2" Text="{Binding Status}" Foreground="{DynamicResource MutedBrush}"
+                           TextTrimming="CharacterEllipsis" Margin="0,10,0,0"/>
+            </Grid>
+        </Border>
+
+        <!-- ================= RIGHT: what to find + review list ================= -->
+        <Border Grid.Column="2" Style="{StaticResource Card}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0">
+                    <TextBlock Text="Find automatically" FontSize="16" FontWeight="SemiBold"
+                               Foreground="{DynamicResource InkBrush}" Margin="0,0,0,6"/>
+                    <CheckBox Content="Social Security numbers" IsChecked="{Binding FindSsn}" Margin="0,3"/>
+                    <CheckBox Content="Phone numbers" IsChecked="{Binding FindPhone}" Margin="0,3"/>
+                    <CheckBox Content="Email addresses" IsChecked="{Binding FindEmail}" Margin="0,3"/>
+                    <CheckBox Content="Card numbers" IsChecked="{Binding FindCards}" Margin="0,3"/>
+                    <CheckBox Content="Dates of birth (labelled DOB / born)" IsChecked="{Binding FindDob}" Margin="0,3"/>
+
+                    <TextBlock Text="Also redact these words or names (one per line)" Style="{StaticResource FieldLabel}"/>
+                    <TextBox Style="{StaticResource Input}" AcceptsReturn="True" Height="64"
+                             VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top"
+                             Text="{Binding CustomTermsText, UpdateSourceTrigger=LostFocus}"/>
+
+                    <Grid Margin="0,14,0,6">
+                        <TextBlock Text="Review" FontSize="16" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center"/>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button Content="All" Style="{StaticResource SecondaryButton}" Padding="10,4"
+                                    Command="{Binding ApproveAllCommand}"/>
+                            <Button Content="None" Style="{StaticResource SecondaryButton}" Padding="10,4"
+                                    Command="{Binding ApproveNoneCommand}" Margin="6,0,0,0"/>
+                        </StackPanel>
+                    </Grid>
+                    <TextBlock Text="{Binding Summary}" Style="{StaticResource Hint}" Margin="0,0,0,4"/>
+                </StackPanel>
+
+                <ListBox Grid.Row="1" ItemsSource="{Binding Regions}" SelectedItem="{Binding SelectedRegion}"
+                         BorderBrush="{DynamicResource LineBrush}"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         HorizontalContentAlignment="Stretch">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <CheckBox IsChecked="{Binding Approved}" Margin="2,3">
+                                <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis"
+                                           ToolTip="{Binding Label}"/>
+                            </CheckBox>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <StackPanel Grid.Row="2" Margin="0,12,0,0">
+                    <Button Content="Save redacted copy…" Style="{StaticResource PrimaryButton}"
+                            HorizontalAlignment="Left" Command="{Binding ApplyCommand}"/>
+                    <TextBlock Style="{StaticResource Hint}" Margin="0,10,0,0"
+                               Text="On the page: click a box to include or exclude it, drag to draw your own, right-click a hand-drawn box to remove it. Redacted pages are saved as images, so the hidden text is truly gone and the file can't be searched or copied from."/>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

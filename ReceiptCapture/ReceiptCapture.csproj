@@ -24,6 +24,13 @@
   <ItemGroup>
     <!-- Open-source (MIT) library for merging, splitting and stamping PDFs. -->
     <PackageReference Include="PDFsharp" Version="6.1.1" />
+    <!-- Modern control templates with built-in light/dark support (MIT). -->
+    <PackageReference Include="ModernWpfUI" Version="0.9.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Sora (SIL Open Font License, see Fonts\OFL.txt) is embedded so the app looks the same on every PC. -->
+    <Resource Include="Fonts\*.ttf" />
   </ItemGroup>
 
   <ItemGroup>

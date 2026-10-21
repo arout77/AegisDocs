@@ -2,7 +2,7 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:ReceiptCapture"
-             Background="{StaticResource BgBrush}"
+             Background="{DynamicResource BgBrush}"
              AllowDrop="True"
              PreviewDragOver="View_PreviewDragOver"
              PreviewDrop="View_PreviewDrop"
@@ -68,7 +68,7 @@
                         <TextBox x:Name="SearchBox" Style="{StaticResource Input}"
                                  Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"/>
                         <TextBlock Text="Search vendor, notes, or text on the receipt…"
-                                   Foreground="{StaticResource MutedBrush}" Margin="9,0,0,0"
+                                   Foreground="{DynamicResource MutedBrush}" Margin="9,0,0,0"
                                    VerticalAlignment="Center" IsHitTestVisible="False">
                             <TextBlock.Style>
                                 <Style TargetType="TextBlock">
@@ -88,12 +88,12 @@
                               SelectedItem="{Binding CategoryFilter}"/>
 
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="8,0,0,0">
-                        <TextBlock Text="From" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,0,4,0"/>
+                        <TextBlock Text="From" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}" Margin="0,0,4,0"/>
                         <DatePicker Width="115" SelectedDate="{Binding FromDate}"/>
                     </StackPanel>
 
                     <StackPanel Grid.Column="3" Orientation="Horizontal" Margin="8,0,0,0">
-                        <TextBlock Text="To" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,0,4,0"/>
+                        <TextBlock Text="To" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}" Margin="0,0,4,0"/>
                         <DatePicker Width="115" SelectedDate="{Binding ToDate}"/>
                     </StackPanel>
 
@@ -109,7 +109,7 @@
                               AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
                               SelectionMode="Single" SelectionUnit="FullRow"
                               HeadersVisibility="Column" GridLinesVisibility="Horizontal"
-                              HorizontalGridLinesBrush="{StaticResource LineBrush}"
+                              HorizontalGridLinesBrush="{DynamicResource LineBrush}"
                               BorderThickness="0" Background="Transparent" RowBackground="Transparent"
                               RowHeight="34" ColumnHeaderHeight="32"
                               SelectionChanged="ReceiptGrid_SelectionChanged">
@@ -118,7 +118,7 @@
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <TextBlock Text="●" ToolTip="Needs review"
-                                                   Foreground="{StaticResource WarnBrush}"
+                                                   Foreground="{DynamicResource WarnBrush}"
                                                    HorizontalAlignment="Center" VerticalAlignment="Center"
                                                    Visibility="{Binding NeedsReview, Converter={StaticResource BoolToVis}}"/>
                                     </DataTemplate>
@@ -145,9 +145,9 @@
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"
                                 Visibility="{Binding IsEmpty, Converter={StaticResource BoolToVis}}">
                         <TextBlock Text="Drop receipts or invoices here" FontSize="18" FontWeight="SemiBold"
-                                   Foreground="{StaticResource MutedBrush}" HorizontalAlignment="Center"/>
+                                   Foreground="{DynamicResource MutedBrush}" HorizontalAlignment="Center"/>
                         <TextBlock Text="PNG, JPG, or PDF. Everything is read on this PC; nothing is uploaded."
-                                   Foreground="{StaticResource MutedBrush}" Margin="0,6,0,0"
+                                   Foreground="{DynamicResource MutedBrush}" Margin="0,6,0,0"
                                    HorizontalAlignment="Center"/>
                     </StackPanel>
                 </Grid>
@@ -158,10 +158,10 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="{Binding Status}" Foreground="{StaticResource MutedBrush}"
+                    <TextBlock Grid.Column="0" Text="{Binding Status}" Foreground="{DynamicResource MutedBrush}"
                                TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                     <TextBlock Grid.Column="1" Text="{Binding Summary}" FontWeight="SemiBold"
-                               Foreground="{StaticResource InkBrush}" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                               Foreground="{DynamicResource InkBrush}" Margin="12,0,0,0" VerticalAlignment="Center"/>
                 </Grid>
             </Grid>
         </Border>
@@ -176,9 +176,9 @@
                 </Grid.RowDefinitions>
 
                 <Grid Grid.Row="0">
-                    <TextBlock Text="Details" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource InkBrush}"/>
+                    <TextBlock Text="Details" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource InkBrush}"/>
                     <TextBlock Text="● Needs review" FontWeight="SemiBold" HorizontalAlignment="Right"
-                               Foreground="{StaticResource WarnBrush}"
+                               Foreground="{DynamicResource WarnBrush}"
                                Visibility="{Binding Draft.NeedsReview, Converter={StaticResource BoolToVis}}"/>
                 </Grid>
 
@@ -186,10 +186,10 @@
                     <StackPanel Margin="0,0,8,0">
 
                         <!-- Preview -->
-                        <Border Background="#F9FAFB" BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
-                                CornerRadius="6" Height="200">
+                        <Border Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                CornerRadius="10" Height="200">
                             <Grid>
-                                <TextBlock Text="No preview" Foreground="{StaticResource MutedBrush}"
+                                <TextBlock Text="No preview" Foreground="{DynamicResource MutedBrush}"
                                            HorizontalAlignment="Center" VerticalAlignment="Center">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock">
@@ -269,7 +269,7 @@
                     <Button Content="Open original" Style="{StaticResource SecondaryButton}"
                             Command="{Binding OpenOriginalCommand}" Margin="8,0,0,0"/>
                     <Button Content="Delete" Style="{StaticResource SecondaryButton}"
-                            Foreground="{StaticResource DangerBrush}"
+                            Foreground="{DynamicResource DangerBrush}"
                             Command="{Binding DeleteCommand}" Margin="8,0,0,0"/>
                 </StackPanel>
             </Grid>

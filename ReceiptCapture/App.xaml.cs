@@ -8,6 +8,7 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         DispatcherUnhandledException += OnUnhandledException;
+        AppTheme.Initialize();   // pick light/dark before the first window appears
         base.OnStartup(e);
     }
 
