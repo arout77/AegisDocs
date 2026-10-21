@@ -14,8 +14,8 @@ public static class PdfService
 {
     static PdfService()
     {
-        // Use the fonts installed in Windows (Arial etc.) when stamping text.
-        GlobalFontSettings.UseWindowsFontsUnderWindows = true;
+        // PDFsharp needs to be told where fonts live before it can draw any text.
+        GlobalFontSettings.FontResolver = new WindowsFontResolver();
     }
 
     public static int GetPageCount(string path)
