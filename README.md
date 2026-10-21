@@ -28,6 +28,3 @@ Windows 10/11 PC without installing .NET.
 - Storage is behind `IReceiptStore`, so SQLite can replace the JSON file by adding one class
 - Categories: `ReceiptCapture.Core/Categories.cs`
 
-## Automatic builds (GitHub Actions)
-`.github/workflows/build.yml` builds, tests, and publishes the exe on every push and pull request (the exe appears
-under the run's **Artifacts**). Push a tag like `v0.1.0` and it also attaches `ReceiptCapture.exe` to a GitHub Release.
