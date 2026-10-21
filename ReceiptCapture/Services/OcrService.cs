@@ -59,7 +59,7 @@ public sealed class WindowsOcrService : IOcrService
             var options = new PdfPageRenderOptions
             {
                 DestinationWidth = 2000,
-                BackgroundColor = Windows.UI.Colors.White,
+                BackgroundColor = new Windows.UI.Color { A = 255, R = 255, G = 255, B = 255 },   // opaque white
             };
             await page.RenderToStreamAsync(memory, options);
             memory.Seek(0);

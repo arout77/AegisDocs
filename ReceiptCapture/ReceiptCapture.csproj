@@ -14,10 +14,14 @@
     <Version>0.1.0</Version>
   </PropertyGroup>
 
+  <!-- WPF projects leave these out of the automatic "using" list, but the code relies on them. -->
   <ItemGroup>
-	<Using Include="System.IO" />
-	<Using Include="System.Linq" />
-	<Using Include="System.Threading.Tasks" />
+    <Using Include="System.IO" />
+    <Using Include="System.Linq" />
+    <Using Include="System.Threading.Tasks" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\ReceiptCapture.Core\ReceiptCapture.Core.csproj" />
   </ItemGroup>
 
