@@ -1,0 +1,71 @@
+name: Build
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]          # pushing a tag like v0.1.0 also creates a GitHub Release
+  pull_request:
+  workflow_dispatch:      # adds a "Run workflow" button in the Actions tab
+
+# Cancel an older run of the same branch when a newer commit arrives.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # WPF only builds on Windows, so this can't run on a Linux runner.
+    runs-on: windows-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore ReceiptCapture.sln
+
+      - name: Build
+        run: dotnet build ReceiptCapture.sln -c Release --no-restore
+
+      - name: Run tests
+        run: dotnet run --project ReceiptCapture.Tests -c Release --no-build
+
+      - name: Publish single-file exe
+        run: >
+          dotnet publish ReceiptCapture/ReceiptCapture.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -o publish
+
+      - name: Upload exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: ReceiptCapture-win-x64
+          path: publish/ReceiptCapture.exe
+          if-no-files-found: error
+
+  release:
+    # Only runs when you push a version tag (e.g. v0.1.0).
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write     # needed to create the release
+    steps:
+      - name: Download exe
+        uses: actions/download-artifact@v4
+        with:
+          name: ReceiptCapture-win-x64
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ReceiptCapture.exe
+          generate_release_notes: true
