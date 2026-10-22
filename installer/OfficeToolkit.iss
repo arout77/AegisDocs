@@ -15,7 +15,7 @@ AppId={{6F0B7C52-3D4E-4A8B-9C1F-5E2A7B8D4C19}
 AppName={#AppName}
 AppVersion={#AppVersion}
 ; TODO: put your company / your name here (it shows in "Installed apps" and on the installer).
-AppPublisher=Apex Studio
+AppPublisher=Office Toolkit
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes

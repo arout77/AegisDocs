@@ -40,10 +40,13 @@
 
     <Grid Margin="16">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="*" MinWidth="380"/>
             <ColumnDefinition Width="16"/>
-            <ColumnDefinition Width="360"/>
+            <ColumnDefinition Width="360" MinWidth="300" MaxWidth="640"/>
         </Grid.ColumnDefinitions>
+
+        <!-- Drag this gap left or right to resize the two panels -->
+        <GridSplitter Grid.Column="1" Style="{StaticResource ColumnSplitter}"/>
 
         <!-- ================= LEFT: page viewer ================= -->
         <Border Grid.Column="0" Style="{StaticResource Card}">
@@ -147,7 +150,7 @@
                                        Foreground="{DynamicResource MutedBrush}" HorizontalAlignment="Center"/>
                             <TextBlock Style="{StaticResource Hint}" HorizontalAlignment="Center" TextAlignment="Center"
                                        Margin="0,6,0,0" MaxWidth="420"
-                                       Text="Scanned or digital, it makes no difference. Pages are read on this PC; nothing is uploaded."/>
+                                       Text="Scanned or digital, it makes no difference. Pages are read on this PC; nothing is uploaded. You can also drag on the page to black out anything by hand."/>
                         </StackPanel>
                     </Grid>
                 </Border>

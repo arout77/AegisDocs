@@ -10,6 +10,7 @@
 
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <local:FillHeightConverter x:Key="FillHeight"/>
 
         <Style x:Key="CellText" TargetType="TextBlock">
             <Setter Property="VerticalAlignment" Value="Center"/>
@@ -23,10 +24,13 @@
 
     <Grid Margin="16">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="*" MinWidth="380"/>
             <ColumnDefinition Width="16"/>
-            <ColumnDefinition Width="400"/>
+            <ColumnDefinition Width="400" MinWidth="300" MaxWidth="700"/>
         </Grid.ColumnDefinitions>
+
+        <!-- Drag this gap left or right to resize the two panels -->
+        <GridSplitter Grid.Column="1" Style="{StaticResource ColumnSplitter}"/>
 
         <!-- ================= LEFT: list ================= -->
         <Border Grid.Column="0" Style="{StaticResource Card}">
@@ -181,12 +185,13 @@
                                Visibility="{Binding Draft.NeedsReview, Converter={StaticResource BoolToVis}}"/>
                 </Grid>
 
-                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,8,0,8">
+                <ScrollViewer x:Name="DetailsScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,8,0,8">
                     <StackPanel Margin="0,0,8,0">
 
                         <!-- Preview -->
                         <Border Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
-                                CornerRadius="10" Height="200">
+                                CornerRadius="10"
+                                Height="{Binding ActualHeight, ElementName=DetailsScroll, Converter={StaticResource FillHeight}, ConverterParameter=410|200|900}">
                             <Grid>
                                 <TextBlock Text="No preview" Foreground="{DynamicResource MutedBrush}"
                                            HorizontalAlignment="Center" VerticalAlignment="Center">

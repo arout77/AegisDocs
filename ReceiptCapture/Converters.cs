@@ -62,3 +62,28 @@ public sealed class BytesToImageConverter : IValueConverter
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();
 }
+
+/// <summary>
+/// Makes a panel grow with the window: result = available height - reserved space, kept between a minimum and maximum.
+/// ConverterParameter is "reserved|min|max", e.g. "410|200|900".
+/// </summary>
+public sealed class FillHeightConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        double reserved = 400, min = 200, max = 900;
+        var parts = (parameter as string)?.Split('|');
+        if (parts is { Length: 3 })
+        {
+            double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out reserved);
+            double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out min);
+            double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out max);
+        }
+
+        double available = value is double d && !double.IsNaN(d) ? d : 0;
+        return Math.Max(min, Math.Min(max, available - reserved));
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
