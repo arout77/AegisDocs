@@ -5,11 +5,17 @@
              Background="{DynamicResource BgBrush}"
              AllowDrop="True"
              PreviewDragOver="View_PreviewDragOver"
-             PreviewDrop="View_PreviewDrop">
+             PreviewDrop="View_PreviewDrop"
+             PreviewKeyDown="View_PreviewKeyDown">
 
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
         <local:BytesToImageConverter x:Key="BytesToImage"/>
+
+        <Style x:Key="FindCheck" TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Margin" Value="0,2"/>
+        </Style>
 
         <Style x:Key="Hint" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/>
@@ -36,7 +42,7 @@
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="16"/>
-            <ColumnDefinition Width="340"/>
+            <ColumnDefinition Width="360"/>
         </Grid.ColumnDefinitions>
 
         <!-- ================= LEFT: page viewer ================= -->
@@ -66,11 +72,18 @@
 
                 <Border Grid.Row="1" Background="{DynamicResource ViewerBgBrush}" CornerRadius="10" ClipToBounds="True">
                     <Grid>
-                        <!-- The Viewbox shrinks the page to fit the window. Everything inside is measured in
-                             page-image pixels, so box positions need no scaling maths. -->
-                        <Viewbox Stretch="Uniform" Margin="8"
-                                 Visibility="{Binding HasDocument, Converter={StaticResource BoolToVis}}">
-                            <Grid Width="{Binding PageWidth}" Height="{Binding PageHeight}" Background="White">
+                        <!-- The page is scaled by a LayoutTransform (the zoom). Everything inside is still measured in
+                             page-image pixels, so box positions and mouse positions need no scaling maths. -->
+                        <ScrollViewer x:Name="PageScroller" HorizontalScrollBarVisibility="Auto"
+                                      VerticalScrollBarVisibility="Auto"
+                                      SizeChanged="PageScroller_SizeChanged"
+                                      PreviewMouseWheel="PageScroller_PreviewMouseWheel">
+                            <Grid Width="{Binding PageWidth}" Height="{Binding PageHeight}" Background="White"
+                                  Margin="24" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                  Visibility="{Binding HasDocument, Converter={StaticResource BoolToVis}}">
+                                <Grid.LayoutTransform>
+                                    <ScaleTransform ScaleX="{Binding EffectiveScale}" ScaleY="{Binding EffectiveScale}"/>
+                                </Grid.LayoutTransform>
                                 <Image Stretch="Fill"
                                        Source="{Binding CurrentPagePng, Converter={StaticResource BytesToImage}}"/>
 
@@ -107,7 +120,26 @@
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
                             </Grid>
-                        </Viewbox>
+                        </ScrollViewer>
+
+                        <!-- Floating zoom controls (Ctrl + mouse wheel, Ctrl +/-, and Ctrl 0 also work) -->
+                        <Border HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,28,28"
+                                Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}"
+                                BorderThickness="1" CornerRadius="12" Padding="4"
+                                Visibility="{Binding HasDocument, Converter={StaticResource BoolToVis}}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Content="−" ToolTip="Zoom out (Ctrl + minus)" Padding="13,5"
+                                        Style="{StaticResource SecondaryButton}" Command="{Binding ZoomOutCommand}"/>
+                                <Button Content="{Binding ZoomPercent}" ToolTip="Actual size (100%)" MinWidth="64"
+                                        Margin="4,0" Padding="8,5"
+                                        Style="{StaticResource SecondaryButton}" Command="{Binding Zoom100Command}"/>
+                                <Button Content="+" ToolTip="Zoom in (Ctrl + plus)" Padding="13,5"
+                                        Style="{StaticResource SecondaryButton}" Command="{Binding ZoomInCommand}"/>
+                                <Button Content="Fit" ToolTip="Fit the page to the window (Ctrl + 0)" Margin="4,0,0,0"
+                                        Padding="12,5" Style="{StaticResource SecondaryButton}"
+                                        Command="{Binding ZoomFitCommand}"/>
+                            </StackPanel>
+                        </Border>
 
                         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"
                                     Visibility="{Binding NoDocument, Converter={StaticResource BoolToVis}}">
@@ -137,14 +169,36 @@
                 <StackPanel Grid.Row="0">
                     <TextBlock Text="Find automatically" FontSize="16" FontWeight="SemiBold"
                                Foreground="{DynamicResource InkBrush}" Margin="0,0,0,6"/>
-                    <CheckBox Content="Social Security numbers" IsChecked="{Binding FindSsn}" Margin="0,3"/>
-                    <CheckBox Content="Phone numbers" IsChecked="{Binding FindPhone}" Margin="0,3"/>
-                    <CheckBox Content="Email addresses" IsChecked="{Binding FindEmail}" Margin="0,3"/>
-                    <CheckBox Content="Card numbers" IsChecked="{Binding FindCards}" Margin="0,3"/>
-                    <CheckBox Content="Dates of birth (labelled DOB / born)" IsChecked="{Binding FindDob}" Margin="0,3"/>
+                    <UniformGrid Columns="2">
+                        <CheckBox Content="SSNs" Style="{StaticResource FindCheck}" IsChecked="{Binding FindSsn}"
+                                  ToolTip="Social Security numbers, like 123-45-6789"/>
+                        <CheckBox Content="Phone numbers" Style="{StaticResource FindCheck}" IsChecked="{Binding FindPhone}"
+                                  ToolTip="US phone numbers in common formats"/>
+                        <CheckBox Content="Emails" Style="{StaticResource FindCheck}" IsChecked="{Binding FindEmail}"
+                                  ToolTip="Email addresses"/>
+                        <CheckBox Content="Card numbers" Style="{StaticResource FindCheck}" IsChecked="{Binding FindCards}"
+                                  ToolTip="13 to 19 digit credit and debit card numbers that pass the card checksum"/>
+                        <CheckBox Content="Dates of birth" Style="{StaticResource FindCheck}" IsChecked="{Binding FindDob}"
+                                  ToolTip="Dates labelled DOB, date of birth or born"/>
+                        <CheckBox Content="Street addresses" Style="{StaticResource FindCheck}" IsChecked="{Binding FindAddress}"
+                                  ToolTip="US street addresses (123 Main Street, Apt 4B) and P.O. boxes, plus the city, state and ZIP that follow"/>
+                        <CheckBox Content="EIN / tax ID" Style="{StaticResource FindCheck}" IsChecked="{Binding FindEin}"
+                                  ToolTip="Numbers shaped like 12-3456789, or any number labelled EIN or Tax ID"/>
+                        <CheckBox Content="Bank accounts" Style="{StaticResource FindCheck}" IsChecked="{Binding FindBank}"
+                                  ToolTip="Numbers that follow Account, Acct or A/C"/>
+                        <CheckBox Content="Routing numbers" Style="{StaticResource FindCheck}" IsChecked="{Binding FindRouting}"
+                                  ToolTip="9-digit numbers that follow Routing, ABA or RTN"/>
+                        <CheckBox Content="Driver's license" Style="{StaticResource FindCheck}" IsChecked="{Binding FindLicense}"
+                                  ToolTip="Numbers that follow Driver's License, DL or License No."/>
+                        <CheckBox Content="Passports" Style="{StaticResource FindCheck}" IsChecked="{Binding FindPassport}"
+                                  ToolTip="Numbers that follow the word Passport"/>
+                    </UniformGrid>
+                    <TextBlock Style="{StaticResource Hint}" Margin="0,6,0,0"
+                               Text="Account, routing, license and passport numbers are found by the label printed next to them. Anything else, add below."/>
+
 
                     <TextBlock Text="Also redact these words or names (one per line)" Style="{StaticResource FieldLabel}"/>
-                    <TextBox Style="{StaticResource Input}" AcceptsReturn="True" Height="64"
+                    <TextBox Style="{StaticResource Input}" AcceptsReturn="True" Height="56"
                              VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top"
                              Text="{Binding CustomTermsText, UpdateSourceTrigger=LostFocus}"/>
 

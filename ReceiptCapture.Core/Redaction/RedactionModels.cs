@@ -48,6 +48,12 @@ public sealed class RedactionRegion : ObservableObject
         SensitiveKind.Email => "Email",
         SensitiveKind.CreditCard => "Card number",
         SensitiveKind.DateOfBirth => "Date of birth",
+        SensitiveKind.Ein => "EIN",
+        SensitiveKind.RoutingNumber => "Routing number",
+        SensitiveKind.BankAccount => "Bank account",
+        SensitiveKind.Passport => "Passport",
+        SensitiveKind.DriversLicense => "Driver's license",
+        SensitiveKind.Address => "Address",
         SensitiveKind.CustomTerm => "Your term",
         _ => "Item",
     };

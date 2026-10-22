@@ -206,6 +206,7 @@ Check("dob 'born on'", Found("born on 14 March 1985")[0].Text, "14 March 1985");
 Check("unlabelled date is not a dob", Found("Filed 03/14/2025").Count, 0);
 
 var custom = new FindOptions { Ssn = false, Phone = false, Email = false, CreditCard = false, DateOfBirth = false,
+    Ein = false, BankAccount = false, RoutingNumber = false, DriversLicense = false, Passport = false, Address = false,
     CustomTerms = new[] { "acme  corp", "Bob" } };
 Check("custom term, case and spacing flexible", Found("ACME Corp sued Acme Corp.", custom).Count, 2);
 Check("custom term respects word boundaries", Found("Bobby and Bob", custom).Count, 1);
@@ -286,6 +287,78 @@ static bool ThrowsArg(Action a)
 {
     try { a(); return false; } catch (ArgumentException) { return true; }
 }
+
+// ---------- 17. More detectors ----------
+(SensitiveKind Kind, string Text)? First(string text, SensitiveKind kind) =>
+    Found(text).Where(f => f.Kind == kind).Select(f => ((SensitiveKind, string)?)f).FirstOrDefault();
+bool Has(string text, SensitiveKind kind) => Found(text).Any(f => f.Kind == kind);
+
+// EIN
+Check("ein unlabelled", First("Filed under 12-3456789 for 2024", SensitiveKind.Ein)?.Text, "12-3456789");
+Check("ein labelled, hyphenated", First("EIN: 12-3456789", SensitiveKind.Ein)?.Text, "12-3456789");
+Check("ein labelled, no hyphen", First("Employer Identification Number 123456789", SensitiveKind.Ein)?.Text, "123456789");
+Check("ein 'Federal Tax ID'", First("Federal Tax ID # 98-7654321", SensitiveKind.Ein)?.Text, "98-7654321");
+Check("ein impossible prefix ignored when unlabelled", Has("Ref 00-1234567", SensitiveKind.Ein), false);
+Check("ein is not an ssn", Has("12-3456789", SensitiveKind.Ssn), false);
+
+// routing numbers
+Check("routing labelled", First("Routing number: 021000021", SensitiveKind.RoutingNumber)?.Text, "021000021");
+Check("routing via ABA", First("ABA 026009593", SensitiveKind.RoutingNumber)?.Text, "026009593");
+Check("routing via RTN with #", First("RTN # 111000025", SensitiveKind.RoutingNumber)?.Text, "111000025");
+Check("bare 9 digits are not a routing number", Has("Order 021000021", SensitiveKind.RoutingNumber), false);
+Check("too-short routing number ignored", Has("Routing: 12345", SensitiveKind.RoutingNumber), false);
+
+// bank accounts
+Check("account number", First("Account Number: 1234567890", SensitiveKind.BankAccount)?.Text, "1234567890");
+Check("acct with spaces", First("Acct #: 0012 3456 7890", SensitiveKind.BankAccount)?.Text, "0012 3456 7890");
+Check("savings account", First("Savings Account 987654321", SensitiveKind.BankAccount)?.Text, "987654321");
+Check("short 'account' number ignored", Has("Account 123", SensitiveKind.BankAccount), false);
+Check("word 'account' alone is fine", Has("on account of weather", SensitiveKind.BankAccount), false);
+Check("card number after 'account' stays a card",
+      Found("Account Number: 4111 1111 1111 1111").Select(f => f.Kind).Single(), SensitiveKind.CreditCard);
+Check("routing and account on one line",
+      Found("Routing 021000021 Account 123456789").Select(f => f.Kind).OrderBy(k => k).ToList().SequenceEqual(
+          new[] { SensitiveKind.RoutingNumber, SensitiveKind.BankAccount }), true);
+
+// driver's licence
+Check("license letter+digits", First("Driver's License: D1234567", SensitiveKind.DriversLicense)?.Text, "D1234567");
+Check("license DL#", First("DL# 123456789", SensitiveKind.DriversLicense)?.Text, "123456789");
+Check("license dashed", First("DLN: A123-456-78-901-2", SensitiveKind.DriversLicense)?.Text, "A123-456-78-901-2");
+Check("license with state prefix", First("Drivers License No. PA 12345678", SensitiveKind.DriversLicense)?.Text, "12345678");
+Check("license agreement is not a licence number", Has("License Agreement dated June 2024", SensitiveKind.DriversLicense), false);
+
+// passports
+Check("passport 9 digits", First("Passport No: 123456789", SensitiveKind.Passport)?.Text, "123456789");
+Check("passport letter+8 digits", First("Passport #: C12345678", SensitiveKind.Passport)?.Text, "C12345678");
+Check("passport mention without a number", Has("A passport number is required", SensitiveKind.Passport), false);
+
+// street addresses
+Check("address simple", First("Lives at 123 Main Street today", SensitiveKind.Address)?.Text, "123 Main Street");
+Check("address abbreviated", First("Send to 45 Oak Ave.", SensitiveKind.Address)?.Text, "45 Oak Ave.");
+Check("address with direction, unit, city, state, zip",
+      First("456 N. Oak Ave Apt 4B, Springfield, IL 62704", SensitiveKind.Address)?.Text, "456 N. Oak Ave Apt 4B, Springfield, IL 62704");
+Check("address trailing direction", First("1600 Pennsylvania Avenue NW", SensitiveKind.Address)?.Text, "1600 Pennsylvania Avenue NW");
+Check("address all caps", First("789 ELM ST", SensitiveKind.Address)?.Text, "789 ELM ST");
+Check("address city on next line",
+      First("123 Main Street\nSpringfield, IL 62704", SensitiveKind.Address)?.Text, "123 Main Street\nSpringfield, IL 62704");
+Check("po box", First("Mail to P.O. Box 1234", SensitiveKind.Address)?.Text, "P.O. Box 1234");
+Check("ordinary sentence is not an address", Has("See item 5 of the Court order", SensitiveKind.Address), false);
+Check("number + words without a street type is not an address", Has("Page 12 Smith Report", SensitiveKind.Address), false);
+
+// switches
+var noNew = new FindOptions { Phone = false, Ein = false, BankAccount = false, RoutingNumber = false, DriversLicense = false, Passport = false, Address = false };
+Check("new detectors can be switched off",
+      Found("EIN 12-3456789 Acct 1234567890 123 Main Street Passport C12345678", noNew).Count, 0);
+
+// address over two OCR lines becomes two boxes
+var addressWords = new List<WordBox>
+{
+    new("123", 10, 10, 30, 14, 0), new("Main", 50, 10, 40, 14, 0), new("Street", 100, 10, 55, 14, 0),
+    new("Springfield,", 10, 30, 90, 14, 1), new("IL", 110, 30, 20, 14, 1), new("62704", 140, 30, 50, 14, 1),
+};
+var addressRegions = RedactionMapper.FindRegions(0, addressWords, allOn);
+Check("two-line address: two boxes", addressRegions.Count(r => r.Kind == SensitiveKind.Address), 2);
+Check("address description", addressRegions[0].Description, "Address");
 
 Console.WriteLine($"\n{passed} passed, {failed} failed");
 return failed == 0 ? 0 : 1;

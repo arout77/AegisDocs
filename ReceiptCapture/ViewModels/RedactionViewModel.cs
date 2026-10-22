@@ -31,7 +31,22 @@ public sealed class RedactionViewModel : ObservableObject
     private bool _findEmail = true;
     private bool _findCards = true;
     private bool _findDob = true;
+    private bool _findAddress = true;
+    private bool _findEin = true;
+    private bool _findBank = true;
+    private bool _findRouting = true;
+    private bool _findLicense = true;
+    private bool _findPassport = true;
     private string _customTermsText = "";
+
+    // zoom: "fit" tracks the window size; otherwise a fixed factor where 1.0 = actual size (100%)
+    private const double MinZoom = 0.2;
+    private const double MaxZoom = 4.0;
+    private bool _fitToWindow = true;
+    private double _manualZoom = 1.0;
+    private double _fitZoom = 1.0;
+    private double _viewportWidth;
+    private double _viewportHeight;
 
     public RedactionViewModel(IRedactionService service)
     {
@@ -43,6 +58,10 @@ public sealed class RedactionViewModel : ObservableObject
         ApproveAllCommand = new RelayCommand(() => SetAllApproved(true), () => Regions.Count > 0);
         ApproveNoneCommand = new RelayCommand(() => SetAllApproved(false), () => Regions.Count > 0);
         ApplyCommand = new RelayCommand(async () => await ApplyAsync(), () => HasDocument && !IsBusy);
+        ZoomInCommand = new RelayCommand(() => ZoomBy(1.25), () => HasDocument);
+        ZoomOutCommand = new RelayCommand(() => ZoomBy(0.8), () => HasDocument);
+        Zoom100Command = new RelayCommand(() => SetManualZoom(1.0), () => HasDocument);
+        ZoomFitCommand = new RelayCommand(FitToWindow, () => HasDocument);
     }
 
     // ------------------------------------------------------------------
@@ -103,6 +122,12 @@ public sealed class RedactionViewModel : ObservableObject
     public bool FindEmail { get => _findEmail; set { if (SetProperty(ref _findEmail, value)) RebuildAutoRegions(); } }
     public bool FindCards { get => _findCards; set { if (SetProperty(ref _findCards, value)) RebuildAutoRegions(); } }
     public bool FindDob { get => _findDob; set { if (SetProperty(ref _findDob, value)) RebuildAutoRegions(); } }
+    public bool FindAddress { get => _findAddress; set { if (SetProperty(ref _findAddress, value)) RebuildAutoRegions(); } }
+    public bool FindEin { get => _findEin; set { if (SetProperty(ref _findEin, value)) RebuildAutoRegions(); } }
+    public bool FindBank { get => _findBank; set { if (SetProperty(ref _findBank, value)) RebuildAutoRegions(); } }
+    public bool FindRouting { get => _findRouting; set { if (SetProperty(ref _findRouting, value)) RebuildAutoRegions(); } }
+    public bool FindLicense { get => _findLicense; set { if (SetProperty(ref _findLicense, value)) RebuildAutoRegions(); } }
+    public bool FindPassport { get => _findPassport; set { if (SetProperty(ref _findPassport, value)) RebuildAutoRegions(); } }
 
     public string CustomTermsText
     {
@@ -116,6 +141,10 @@ public sealed class RedactionViewModel : ObservableObject
     public ICommand ApproveAllCommand { get; }
     public ICommand ApproveNoneCommand { get; }
     public ICommand ApplyCommand { get; }
+    public ICommand ZoomInCommand { get; }
+    public ICommand ZoomOutCommand { get; }
+    public ICommand Zoom100Command { get; }
+    public ICommand ZoomFitCommand { get; }
 
     // ------------------------------------------------------------------
     // Opening and scanning
@@ -145,6 +174,7 @@ public sealed class RedactionViewModel : ObservableObject
             _pages = pages;
             _filePath = path;
             _currentPage = 0;
+            _fitToWindow = true;
 
             foreach (var region in Regions) region.PropertyChanged -= OnRegionChanged;
             Regions.Clear();
@@ -181,6 +211,12 @@ public sealed class RedactionViewModel : ObservableObject
         Email = FindEmail,
         CreditCard = FindCards,
         DateOfBirth = FindDob,
+        Address = FindAddress,
+        Ein = FindEin,
+        BankAccount = FindBank,
+        RoutingNumber = FindRouting,
+        DriversLicense = FindLicense,
+        Passport = FindPassport,
         CustomTerms = CustomTermsText.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
     };
 
@@ -258,6 +294,63 @@ public sealed class RedactionViewModel : ObservableObject
     }
 
     // ------------------------------------------------------------------
+    // Zoom
+    // ------------------------------------------------------------------
+    /// <summary>The scale applied to the page image (pixels are drawn at this factor).</summary>
+    public double EffectiveScale => CurrentZoom * BaseScale;
+
+    public string ZoomPercent => $"{Math.Round(CurrentZoom * 100)}%";
+
+    private double CurrentZoom => _fitToWindow ? _fitZoom : _manualZoom;
+
+    /// <summary>Scale at which the page appears at its real size (100%) on screen: the image is rendered at a higher resolution than that.</summary>
+    private double BaseScale => HasDocument
+        ? _pages[_currentPage].WidthPoints / 0.75 / _pages[_currentPage].PixelWidth
+        : 1;
+
+    /// <summary>Called by the view whenever the viewing area changes size.</summary>
+    public void SetViewport(double width, double height)
+    {
+        _viewportWidth = width;
+        _viewportHeight = height;
+        RecomputeFit();
+    }
+
+    private void RecomputeFit()
+    {
+        if (HasDocument && _viewportWidth > 0 && _viewportHeight > 0)
+        {
+            var page = _pages[_currentPage];
+            double pageWidth = page.WidthPoints / 0.75;     // page size on screen at 100%, in 1/96-inch units
+            double pageHeight = page.HeightPoints / 0.75;
+            const double margin = 48;                       // breathing room around the page
+            _fitZoom = Math.Clamp(Math.Min((_viewportWidth - margin) / pageWidth, (_viewportHeight - margin) / pageHeight), MinZoom, MaxZoom);
+        }
+        NotifyZoom();
+    }
+
+    private void ZoomBy(double factor) => SetManualZoom(CurrentZoom * factor);
+
+    private void SetManualZoom(double zoom)
+    {
+        _manualZoom = Math.Clamp(zoom, MinZoom, MaxZoom);
+        _fitToWindow = false;
+        NotifyZoom();
+    }
+
+    private void FitToWindow()
+    {
+        _fitToWindow = true;
+        RecomputeFit();
+    }
+
+    private void NotifyZoom()
+    {
+        OnPropertyChanged(nameof(EffectiveScale));
+        OnPropertyChanged(nameof(ZoomPercent));
+    }
+
+    // ------------------------------------------------------------------
     // Paging
     // ------------------------------------------------------------------
     private void GoToPage(int index)
@@ -269,6 +362,7 @@ public sealed class RedactionViewModel : ObservableObject
 
     private void RefreshPage()
     {
+        RecomputeFit();
         RefreshCurrentRegions();
         OnPropertyChanged(nameof(CurrentPagePng));
         OnPropertyChanged(nameof(PageWidth));

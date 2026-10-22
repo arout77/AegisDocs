@@ -75,6 +75,47 @@ public partial class RedactionView : UserControl
         }
     }
 
+    // ---------------- zoom ----------------
+    private void PageScroller_SizeChanged(object sender, SizeChangedEventArgs e)
+        => _vm.SetViewport(PageScroller.ActualWidth, PageScroller.ActualHeight);
+
+    // Ctrl + mouse wheel zooms; a plain wheel scrolls the page as usual.
+    private void PageScroller_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (Keyboard.Modifiers != ModifierKeys.Control) return;
+        Run(e.Delta > 0 ? _vm.ZoomInCommand : _vm.ZoomOutCommand);
+        e.Handled = true;
+    }
+
+    private void View_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (Keyboard.Modifiers != ModifierKeys.Control) return;
+
+        switch (e.Key)
+        {
+            case Key.OemPlus:
+            case Key.Add:
+                Run(_vm.ZoomInCommand);
+                e.Handled = true;
+                break;
+            case Key.OemMinus:
+            case Key.Subtract:
+                Run(_vm.ZoomOutCommand);
+                e.Handled = true;
+                break;
+            case Key.D0:
+            case Key.NumPad0:
+                Run(_vm.ZoomFitCommand);
+                e.Handled = true;
+                break;
+        }
+    }
+
+    private static void Run(ICommand command)
+    {
+        if (command.CanExecute(null)) command.Execute(null);
+    }
+
     // ---------------- draw a new box ----------------
     // Positions are read relative to the canvas, which is sized in page-image pixels, so no scaling is needed.
     private void DrawCanvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
