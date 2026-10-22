@@ -51,6 +51,21 @@ jobs:
           path: publish/ReceiptCapture.exe
           if-no-files-found: error
 
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          $version = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.1.0' }
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" installer\OfficeToolkit.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: OfficeToolkit-Setup
+          path: installer-output/OfficeToolkit-Setup-*.exe
+          if-no-files-found: error
+
   release:
     # Only runs when you push a version tag (e.g. v0.1.0).
     needs: build
@@ -64,8 +79,15 @@ jobs:
         with:
           name: ReceiptCapture-win-x64
 
+      - name: Download installer
+        uses: actions/download-artifact@v4
+        with:
+          name: OfficeToolkit-Setup
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ReceiptCapture.exe
+          files: |
+            OfficeToolkit-Setup-*.exe
+            ReceiptCapture.exe
           generate_release_notes: true

@@ -10,7 +10,6 @@
 
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
-        <local:FilePathToImageConverter x:Key="ImageConv"/>
 
         <Style x:Key="CellText" TargetType="TextBlock">
             <Setter Property="VerticalAlignment" Value="Center"/>
@@ -193,18 +192,18 @@
                                            HorizontalAlignment="Center" VerticalAlignment="Center">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock">
-                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Setter Property="Visibility" Value="Visible"/>
                                             <Style.Triggers>
-                                                <DataTrigger Binding="{Binding Source, ElementName=PreviewImage}" Value="{x:Null}">
-                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                <DataTrigger Binding="{Binding HasPreview}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
                                     </TextBlock.Style>
                                 </TextBlock>
-                                <Image x:Name="PreviewImage" Stretch="Uniform" Margin="4"
+                                <Image Stretch="Uniform" Margin="4"
                                        RenderOptions.BitmapScalingMode="HighQuality"
-                                       Source="{Binding Draft.FilePath, Converter={StaticResource ImageConv}}"/>
+                                       Source="{Binding PreviewImage}"/>
                             </Grid>
                         </Border>
 

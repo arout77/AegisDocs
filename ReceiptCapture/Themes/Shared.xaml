@@ -81,4 +81,40 @@
             </Setter.Value>
         </Setter>
     </Style>
+
+    <!-- Top-level tabs (Documents / Redact / Receipts). No background box: the active tab "lights up"
+         instead, with accent-coloured text and a short accent bar underneath. -->
+    <Style x:Key="NavTabItem" TargetType="TabItem">
+        <Setter Property="OverridesDefaultStyle" Value="True"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/>
+        <Setter Property="FontFamily" Value="{DynamicResource HeadingFont}"/>
+        <Setter Property="FontSize" Value="13.5"/>
+        <Setter Property="Padding" Value="18,8"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TabItem">
+                    <Grid Background="Transparent" SnapsToDevicePixels="True">
+                        <ContentPresenter ContentSource="Header" Margin="{TemplateBinding Padding}"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center"
+                                          TextElement.Foreground="{TemplateBinding Foreground}"
+                                          RecognizesAccessKey="True"/>
+                        <Border x:Name="Indicator" Height="3" CornerRadius="2" Margin="14,0,14,0"
+                                VerticalAlignment="Bottom" Visibility="Collapsed"
+                                Background="{DynamicResource AccentBrush}"/>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}"/>
+                            <Setter TargetName="Indicator" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
 </ResourceDictionary>

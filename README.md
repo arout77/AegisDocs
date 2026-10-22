@@ -32,8 +32,9 @@ Windows 10/11 PC without installing .NET.
 - Categories: `ReceiptCapture.Core/Categories.cs`
 
 ## Automatic builds (GitHub Actions)
-`.github/workflows/build.yml` builds, tests, and publishes the exe on every push and pull request (the exe appears
-under the run's **Artifacts**). Push a tag like `v0.1.0` and it also attaches `ReceiptCapture.exe` to a GitHub Release.
+`.github/workflows/build.yml` builds, tests, and publishes the exe on every push and pull request, and wraps it in
+an installer (`installer/OfficeToolkit.iss`, made with Inno Setup). Both appear under the run's **Artifacts**:
+`OfficeToolkit-Setup` is the file to give to clients. Push a tag like `v0.1.0` and it also attaches `ReceiptCapture.exe` to a GitHub Release.
 
 ## Look and feel
 Light and dark themes with the Sora typeface. The **Theme** button (top right) cycles Auto (follows Windows), Light and Dark,

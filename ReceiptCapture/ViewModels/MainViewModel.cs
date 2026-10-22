@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Media;
 using ReceiptCapture.Core;
 using ReceiptCapture.Core.Export;
 using ReceiptCapture.Core.Parsing;
@@ -114,7 +115,42 @@ public sealed class MainViewModel : ObservableObject
     public Receipt Draft
     {
         get => _draft;
-        private set => SetProperty(ref _draft, value);
+        private set
+        {
+            if (SetProperty(ref _draft, value))
+                _ = RefreshPreviewAsync(value.FilePath);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Preview picture in the Details pane (first page for PDFs)
+    // ------------------------------------------------------------------
+    private ImageSource? _previewImage;
+    private string? _previewPath;
+    private int _previewVersion;
+
+    public ImageSource? PreviewImage
+    {
+        get => _previewImage;
+        private set
+        {
+            if (SetProperty(ref _previewImage, value))
+                OnPropertyChanged(nameof(HasPreview));
+        }
+    }
+
+    public bool HasPreview => _previewImage != null;
+
+    private async Task RefreshPreviewAsync(string? path)
+    {
+        if (path == _previewPath && _previewImage != null) return;   // same file, nothing to redo
+
+        _previewPath = path;
+        int version = ++_previewVersion;   // lets a slow load notice it has been overtaken
+        PreviewImage = null;
+
+        var image = await PreviewLoader.LoadAsync(path);
+        if (version == _previewVersion) PreviewImage = image;
     }
 
     public string SearchText

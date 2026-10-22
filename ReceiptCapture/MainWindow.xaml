@@ -11,13 +11,13 @@
 
     <Grid>
         <TabControl Padding="0" BorderThickness="0" Background="{DynamicResource BgBrush}">
-            <TabItem Header="Documents" Padding="18,7">
+            <TabItem Header="Documents" Style="{StaticResource NavTabItem}">
                 <local:DocumentsView/>
             </TabItem>
-            <TabItem Header="Redact" Padding="18,7">
+            <TabItem Header="Redact" Style="{StaticResource NavTabItem}">
                 <local:RedactionView/>
             </TabItem>
-            <TabItem Header="Receipts" Padding="18,7">
+            <TabItem Header="Receipts" Style="{StaticResource NavTabItem}">
                 <local:ReceiptsView/>
             </TabItem>
         </TabControl>
