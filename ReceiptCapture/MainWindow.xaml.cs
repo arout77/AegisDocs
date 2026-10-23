@@ -23,7 +23,23 @@ public partial class MainWindow : Window
             }
         };
 
+        Closing += OnClosing;
+
         UpdateThemeButton();
+    }
+
+    // Never lose a meeting: if one is being recorded, ask first, then stop and save it before the app closes.
+    private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        if (!MeetingsTab.IsRecording) return;
+
+        if (!Dialogs.Confirm(this, "A meeting is still being recorded.\n\nStop recording, save it, and close Office Toolkit?"))
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        MeetingsTab.StopForExit();
     }
 
     private HelpWindow? _help;

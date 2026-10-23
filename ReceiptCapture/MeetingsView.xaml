@@ -1,0 +1,320 @@
+<UserControl x:Class="ReceiptCapture.MeetingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:ReceiptCapture"
+             Background="{DynamicResource BgBrush}">
+
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+
+        <Style x:Key="CellText" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="8,0"/>
+            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Margin="16">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" MinWidth="380"/>
+            <ColumnDefinition Width="16"/>
+            <ColumnDefinition Width="400" MinWidth="300" MaxWidth="700"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- Drag this gap left or right to resize the two panels -->
+        <GridSplitter Grid.Column="1" Style="{StaticResource ColumnSplitter}"/>
+
+        <!-- ================= LEFT: recorder + past meetings ================= -->
+        <Border Grid.Column="0" Style="{StaticResource Card}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- Recorder -->
+                <Border Grid.Row="0" Background="{DynamicResource SurfaceAltBrush}"
+                        BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                        CornerRadius="12" Padding="16">
+                    <StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button Content="●  Start recording" Style="{StaticResource PrimaryButton}"
+                                        Command="{Binding RecordCommand}"
+                                        Visibility="{Binding IsIdle, Converter={StaticResource BoolToVis}}"/>
+                                <StackPanel Orientation="Horizontal"
+                                            Visibility="{Binding IsRecording, Converter={StaticResource BoolToVis}}">
+                                    <Button Content="{Binding PauseText}" Style="{StaticResource SecondaryButton}"
+                                            Command="{Binding PauseCommand}" MinWidth="90"/>
+                                    <Button Content="■  Stop and save" Style="{StaticResource PrimaryButton}"
+                                            Command="{Binding StopCommand}" Margin="8,0,0,0"/>
+                                </StackPanel>
+                            </StackPanel>
+
+                            <TextBlock Grid.Column="1" Text="{Binding TimerText}" HorizontalAlignment="Right"
+                                       VerticalAlignment="Center" FontSize="28"
+                                       FontFamily="{DynamicResource HeadingFont}"
+                                       Foreground="{DynamicResource InkBrush}"/>
+                        </Grid>
+
+                        <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Margin="0,10,0,0"
+                                   Foreground="{DynamicResource MutedBrush}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Status}" Value="">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+
+                        <!-- Level bars: show while recording, so you can see the microphone is really being heard -->
+                        <Grid Margin="0,12,0,0" Visibility="{Binding IsRecording, Converter={StaticResource BoolToVis}}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="110"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Grid.Row="0" Text="Microphone" Foreground="{DynamicResource MutedBrush}"
+                                       VerticalAlignment="Center"/>
+                            <ProgressBar Grid.Row="0" Grid.Column="1" Minimum="0" Maximum="1" Height="6"
+                                         Value="{Binding MicLevel, Mode=OneWay}"/>
+
+                            <TextBlock Grid.Row="1" Text="Computer sound" Foreground="{DynamicResource MutedBrush}"
+                                       VerticalAlignment="Center" Margin="0,8,0,0"
+                                       Visibility="{Binding ComputerMeterVisible, Converter={StaticResource BoolToVis}}"/>
+                            <ProgressBar Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="1" Height="6" Margin="0,8,0,0"
+                                         Value="{Binding ComputerLevel, Mode=OneWay}"
+                                         Visibility="{Binding ComputerMeterVisible, Converter={StaticResource BoolToVis}}"/>
+                        </Grid>
+
+                        <!-- Options (locked while recording) -->
+                        <TextBlock Text="Microphone" Style="{StaticResource FieldLabel}"/>
+                        <ComboBox ItemsSource="{Binding Microphones}" SelectedItem="{Binding SelectedMicrophone}"
+                                  DisplayMemberPath="Name" HorizontalAlignment="Stretch" Padding="8,6"
+                                  IsEnabled="{Binding IsIdle}"/>
+                        <CheckBox Content="Also record the sound from this computer (the other people on a video call)"
+                                  Margin="0,10,0,0" IsChecked="{Binding IncludeComputerAudio}"
+                                  IsEnabled="{Binding IsIdle}"/>
+                        <CheckBox Content="Make a transcript automatically when I stop"
+                                  Margin="0,8,0,0" IsChecked="{Binding AutoTranscribe}"
+                                  Visibility="{Binding TranscriptionAvailable, Converter={StaticResource BoolToVis}}"/>
+
+                        <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="8" Padding="10,8" Margin="0,12,0,0">
+                            <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource AccentTextBrush}"
+                                       Text="Tell everyone in the meeting they are being recorded. Many places require everyone's permission."/>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+                <TextBlock Grid.Row="1" Text="Past meetings" FontSize="16" FontWeight="SemiBold"
+                           Foreground="{DynamicResource InkBrush}" Margin="0,18,0,8"/>
+
+                <!-- List + empty-state hint -->
+                <Grid Grid.Row="2">
+                    <DataGrid ItemsSource="{Binding Meetings}"
+                              SelectedItem="{Binding Selected, Mode=TwoWay}"
+                              AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
+                              SelectionMode="Single" SelectionUnit="FullRow"
+                              HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                              HorizontalGridLinesBrush="{DynamicResource LineBrush}"
+                              BorderThickness="0" Background="Transparent" RowBackground="Transparent"
+                              RowHeight="34" ColumnHeaderHeight="32">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Meeting" Width="*"
+                                                Binding="{Binding Title}"
+                                                ElementStyle="{StaticResource CellText}"/>
+                            <DataGridTextColumn Header="Started" Width="150"
+                                                Binding="{Binding StartedAt, StringFormat={}{0:g}}"
+                                                ElementStyle="{StaticResource CellText}"/>
+                            <DataGridTextColumn Header="Length" Width="80"
+                                                Binding="{Binding DurationText}"
+                                                ElementStyle="{StaticResource CellText}"/>
+                            <DataGridTemplateColumn Header="" Width="96" CanUserSort="False">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Grid>
+                                            <TextBlock Text="● Recording" FontWeight="SemiBold" Margin="8,0"
+                                                       Foreground="{DynamicResource DangerBrush}" VerticalAlignment="Center"
+                                                       Visibility="{Binding IsRecording, Converter={StaticResource BoolToVis}}"/>
+                                            <TextBlock Text="Recovered" Margin="8,0" ToolTip="This recording was interrupted and recovered."
+                                                       Foreground="{DynamicResource WarnBrush}" VerticalAlignment="Center"
+                                                       Visibility="{Binding IsRecovered, Converter={StaticResource BoolToVis}}"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <TextBlock Text="Your recorded meetings will appear here."
+                               Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
+                               Visibility="{Binding NoMeetings, Converter={StaticResource BoolToVis}}"/>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- ================= RIGHT: details ================= -->
+        <Border Grid.Column="2" Style="{StaticResource Card}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <TextBlock Text="Details" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource InkBrush}"/>
+
+                <TextBlock Grid.Row="1" Text="Select a meeting to see its details, notes and transcript."
+                           Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" TextAlignment="Center"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           Visibility="{Binding NoSelection, Converter={StaticResource BoolToVis}}"/>
+
+                <Grid Grid.Row="1" Margin="0,8,0,0"
+                      Visibility="{Binding HasSelection, Converter={StaticResource BoolToVis}}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0">
+                        <TextBlock Text="Title" Style="{StaticResource FieldLabel}"/>
+                        <TextBox Style="{StaticResource Input}"
+                                 Text="{Binding Selected.Title, UpdateSourceTrigger=PropertyChanged}"/>
+
+                        <TextBlock Margin="0,12,0,0" Foreground="{DynamicResource MutedBrush}"
+                                   Text="{Binding Selected.StartedAt, StringFormat='Started: {0:f}'}"/>
+                        <TextBlock Margin="0,2,0,0" Foreground="{DynamicResource MutedBrush}"
+                                   Text="{Binding Selected.DurationText, StringFormat='Length: {0}'}"/>
+                        <TextBlock Margin="0,2,0,0" Foreground="{DynamicResource MutedBrush}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Text" Value="Recorded: microphone only"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Selected.IncludedComputerAudio}" Value="True">
+                                            <Setter Property="Text" Value="Recorded: microphone and computer sound"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <TextBlock Margin="0,8,0,0" TextWrapping="Wrap" Foreground="{DynamicResource WarnBrush}"
+                                   Text="This recording was interrupted (the app closed unexpectedly), so it ends where it stopped."
+                                   Visibility="{Binding Selected.IsRecovered, Converter={StaticResource BoolToVis}}"/>
+
+                        <!-- Shown while a transcript is being made -->
+                        <Border Margin="0,12,0,0" Background="{DynamicResource AccentSoftBrush}" CornerRadius="8" Padding="10,8"
+                                Visibility="{Binding IsTranscribing, Converter={StaticResource BoolToVis}}">
+                            <StackPanel>
+                                <TextBlock Text="{Binding TranscriptionLabel}" TextWrapping="Wrap"
+                                           Foreground="{DynamicResource AccentTextBrush}"/>
+                                <ProgressBar Minimum="0" Maximum="100" Height="6" Margin="0,8,0,0"
+                                             Value="{Binding TranscriptionPercent, Mode=OneWay}"/>
+                                <Button Content="Cancel" Style="{StaticResource SecondaryButton}" Margin="0,8,0,0"
+                                        HorizontalAlignment="Left" Command="{Binding CancelTranscriptionCommand}"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <TabControl Grid.Row="1" Margin="0,12,0,0" Padding="0,10,0,0">
+                        <TabItem Header="Notes">
+                            <TextBox Style="{StaticResource Input}" AcceptsReturn="True" TextWrapping="Wrap"
+                                     VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top"
+                                     VerticalAlignment="Stretch"
+                                     Text="{Binding Selected.Notes, UpdateSourceTrigger=PropertyChanged}"/>
+                        </TabItem>
+
+                        <TabItem Header="Transcript">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+
+                                <WrapPanel Grid.Row="0" Margin="0,0,0,6">
+                                    <Button Style="{StaticResource PrimaryButton}" Command="{Binding TranscribeCommand}"
+                                            Margin="0,0,8,6"
+                                            Visibility="{Binding TranscriptionAvailable, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock>
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Text" Value="Make transcript"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Selected.HasTranscript}" Value="True">
+                                                            <Setter Property="Text" Value="Redo transcript"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </Button>
+                                    <Button Content="Copy" Style="{StaticResource SecondaryButton}" Margin="0,0,8,6"
+                                            IsEnabled="{Binding Selected.HasTranscript}" Click="CopyTranscript_Click"/>
+                                    <Button Content="Save as text file…" Style="{StaticResource SecondaryButton}" Margin="0,0,0,6"
+                                            IsEnabled="{Binding Selected.HasTranscript}" Click="SaveTranscript_Click"/>
+                                </WrapPanel>
+
+                                <Grid Grid.Row="1">
+                                    <TextBox Style="{StaticResource Input}" IsReadOnly="True" AcceptsReturn="True"
+                                             TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                                             VerticalContentAlignment="Top" VerticalAlignment="Stretch"
+                                             Text="{Binding TranscriptText, Mode=OneWay}"
+                                             Visibility="{Binding Selected.HasTranscript, Converter={StaticResource BoolToVis}}"/>
+
+                                    <!-- No transcript yet, and this copy can make one -->
+                                    <TextBlock Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
+                                               TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Text="No transcript yet. Press “Make transcript”. It is made on this PC, so nothing is uploaded.">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                <Style.Triggers>
+                                                    <MultiDataTrigger>
+                                                        <MultiDataTrigger.Conditions>
+                                                            <Condition Binding="{Binding Selected.NoTranscript}" Value="True"/>
+                                                            <Condition Binding="{Binding TranscriptionAvailable}" Value="True"/>
+                                                        </MultiDataTrigger.Conditions>
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                    </MultiDataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+
+                                    <!-- This copy of the program doesn't include the speech model -->
+                                    <TextBlock Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
+                                               TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Text="Transcripts need the speech model, which comes with the Office Toolkit installer. This copy doesn't include it."
+                                               Visibility="{Binding TranscriptionUnavailable, Converter={StaticResource BoolToVis}}"/>
+                                </Grid>
+                            </Grid>
+                        </TabItem>
+                    </TabControl>
+
+                    <WrapPanel Grid.Row="2" Margin="0,12,0,0">
+                        <Button Content="Play recording" Style="{StaticResource PrimaryButton}"
+                                Command="{Binding PlayCommand}" Margin="0,0,8,8"/>
+                        <Button Content="Show in folder" Style="{StaticResource SecondaryButton}"
+                                Command="{Binding OpenFolderCommand}" Margin="0,0,8,8"/>
+                        <Button Content="Delete" Style="{StaticResource SecondaryButton}"
+                                Command="{Binding DeleteCommand}" Margin="0,0,0,8"/>
+                    </WrapPanel>
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

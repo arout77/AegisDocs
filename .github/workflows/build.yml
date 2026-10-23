@@ -37,18 +37,66 @@ jobs:
       - name: Run tests
         run: dotnet run --project ReceiptCapture.Tests -c Release --no-build
 
-      - name: Publish single-file exe
+      - name: Publish app
         run: >
           dotnet publish ReceiptCapture/ReceiptCapture.csproj
           -c Release -r win-x64 --self-contained true
           -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
           -o publish
 
-      - name: Upload exe
+      # The speech model is a ~180 MB file. It is cached between runs so it is only downloaded once.
+      - name: Restore speech model from cache
+        id: model-cache
+        uses: actions/cache@v4
+        with:
+          path: model-cache
+          key: whisper-model-ggml-small.en-q5_1-v1
+
+      - name: Download speech model
+        if: steps.model-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force model-cache | Out-Null
+          Invoke-WebRequest -Uri "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin" `
+            -OutFile "model-cache/ggml-small.en-q5_1.bin" -MaximumRetryCount 3 -RetryIntervalSec 10
+
+      - name: Add speech model and engine files to the app folder
+        shell: pwsh
+        run: |
+          $model = "model-cache/ggml-small.en-q5_1.bin"
+          $size = (Get-Item $model).Length
+          if ($size -lt 180MB -or $size -gt 200MB) { throw "Speech model has an unexpected size ($size bytes); the download may have failed." }
+          $hash = (Get-FileHash $model -Algorithm SHA1).Hash
+          if ($hash -ne "20F54878D608F94E4A8EE3AE56016571D47CBA34") { Write-Warning "Speech model SHA-1 is $hash, which differs from the value published by whisper.cpp." }
+
+          New-Item -ItemType Directory -Force publish/models | Out-Null
+          Copy-Item $model publish/models/
+
+          # Keep only the Windows speech-engine files (the package also carries Linux, Mac and phone versions).
+          Get-ChildItem publish/runtimes -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notin @('win-x64', 'noavx') } | Remove-Item -Recurse -Force
+
+          # The speech engine needs Microsoft's Visual C++ runtime. Ship its DLLs beside the engine so a client PC
+          # that has never installed it still works.
+          $redist = Get-ChildItem "$env:ProgramFiles\Microsoft Visual Studio\*\*\VC\Redist\MSVC\*\x64" -Directory -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if ($redist) {
+            $sources = Get-ChildItem $redist.FullName -Directory | Where-Object { $_.Name -match '^Microsoft\.VC\d+\.(CRT|OpenMP)$' }
+            foreach ($target in @('publish', 'publish/runtimes/win-x64', 'publish/runtimes/noavx/win-x64')) {
+              if (Test-Path $target) { foreach ($source in $sources) { Copy-Item "$($source.FullName)\*.dll" $target -Force } }
+            }
+          } else {
+            Write-Warning "Visual C++ runtime DLLs were not found on the build machine."
+          }
+
+          Remove-Item publish/*.pdb -ErrorAction SilentlyContinue
+          Get-ChildItem publish -Recurse -File | Measure-Object Length -Sum | ForEach-Object { "App folder: $([math]::Round($_.Sum / 1MB)) MB" }
+
+      - name: Upload portable app folder
         uses: actions/upload-artifact@v4
         with:
-          name: ReceiptCapture-win-x64
-          path: publish/ReceiptCapture.exe
+          name: OfficeToolkit-portable
+          path: publish
           if-no-files-found: error
 
       - name: Build installer (Inno Setup)
@@ -74,11 +122,6 @@ jobs:
     permissions:
       contents: write     # needed to create the release
     steps:
-      - name: Download exe
-        uses: actions/download-artifact@v4
-        with:
-          name: ReceiptCapture-win-x64
-
       - name: Download installer
         uses: actions/download-artifact@v4
         with:
@@ -87,7 +130,5 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            OfficeToolkit-Setup-*.exe
-            ReceiptCapture.exe
+          files: OfficeToolkit-Setup-*.exe
           generate_release_notes: true

@@ -15,8 +15,9 @@ public partial class HelpWindow : Window
         new("Getting started", new[]
         {
             ("What this is",
-             "Office Toolkit has three tabs along the top: Documents (batch PDF tools), Redact (black out private information) " +
-             "and Receipts (capture receipts and invoices). Everything happens on this PC. Nothing is uploaded anywhere."),
+             "Office Toolkit has four tabs along the top: Documents (batch PDF tools), Redact (black out private information), " +
+             "Receipts (capture receipts and invoices) and Meetings (record a meeting and keep notes). " +
+             "Everything happens on this PC. Nothing is uploaded anywhere."),
             ("Adding files",
              "Every tab accepts files two ways: use the button at the top left of the tab, or simply drag files from " +
              "Windows Explorer and drop them anywhere on the tab."),
@@ -106,6 +107,44 @@ public partial class HelpWindow : Window
              "to export just one month or category."),
             ("Delete",
              "Delete removes the selected entry, and the toolkit's own stored copy of its file, after asking you to confirm. The original file you added stays where it was."),
+        }),
+
+        new("Meetings", new[]
+        {
+            ("What it does",
+             "Records a meeting (in person, a phone call or a video call) and keeps the recording together with your notes. " +
+             "Recordings are saved on this PC and are never uploaded."),
+            ("Before you record",
+             "Tell everyone they are being recorded. Many places, including several US states, require everyone's permission. " +
+             "The program reminds you the first time you record each session."),
+            ("Recording",
+             "Choose your microphone, then press Start recording. The big number is how long you have recorded. " +
+             "Pause stops the recording until you press Resume, and \"Stop and save\" finishes it. " +
+             "The bars show what is being heard: if the Microphone bar never moves when you speak, check that the right " +
+             "microphone is chosen and that Windows allows apps to use it (Windows Settings, Privacy & security, Microphone)."),
+            ("Video calls",
+             "Tick \"Also record the sound from this computer\" to capture the other people on a Zoom, Teams or phone-app call " +
+             "along with your own voice. Wear headphones if you can: on speakers, your microphone also hears them, " +
+             "which makes the recording sound echoey. Untick it for in-person meetings."),
+            ("Transcripts",
+             "A transcript is the meeting written out as text, with the time of each line. It is made on this PC, so the " +
+             "recording is never sent anywhere. It works best with clear speech in English and takes a while: a long meeting can " +
+             "take a good part of its own length, and the bar shows how far along it is. By default one is made automatically when " +
+             "you stop recording. Otherwise open the Transcript tab and press Make transcript. You can Copy it, save it as a text " +
+             "file, or redo it. Names and unusual terms may need correcting, so read it before you rely on it."),
+            ("Notes",
+             "Select the meeting (a new recording is selected automatically) and type in the Notes box on the right, even " +
+             "while it is still recording. Notes and the title are saved as you go."),
+            ("Past meetings",
+             "Click a meeting to see it. Play recording opens it in your usual audio player, Show in folder finds the file, " +
+             "and Delete permanently removes the recording and its notes."),
+            ("If something goes wrong",
+             "If the program closes unexpectedly mid-recording, the audio up to that moment is kept and the meeting is " +
+             "marked Recovered the next time you open Office Toolkit. Closing the window during a recording asks you first, " +
+             "then saves it."),
+            ("Where the files are",
+             "Each meeting has its own folder under the program's data folder, containing a standard audio file (WAV), " +
+             "its notes and its transcript. Use Show in folder to open it."),
         }),
 
         new("Shortcuts", new[]

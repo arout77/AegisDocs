@@ -26,6 +26,13 @@
     <PackageReference Include="PDFsharp" Version="6.1.1" />
     <!-- Modern control templates with built-in light/dark support (MIT). -->
     <PackageReference Include="ModernWpfUI" Version="0.9.6" />
+    <!-- Open-source (MIT) library for recording the microphone and computer sound (meeting recorder). -->
+    <PackageReference Include="NAudio" Version="2.2.1" />
+    <!-- Open-source (MIT) speech-to-text, running fully on this PC. The "Runtime" packages carry the native engine files;
+         NoAvx is a fallback for older processors. They land in a "runtimes" folder next to the exe. -->
+    <PackageReference Include="Whisper.net" Version="1.9.1" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
+    <PackageReference Include="Whisper.net.Runtime.NoAvx" Version="1.9.1" />
   </ItemGroup>
 
   <ItemGroup>

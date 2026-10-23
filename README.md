@@ -32,9 +32,18 @@ Windows 10/11 PC without installing .NET.
 - Categories: `ReceiptCapture.Core/Categories.cs`
 
 ## Automatic builds (GitHub Actions)
-`.github/workflows/build.yml` builds, tests, and publishes the exe on every push and pull request, and wraps it in
-an installer (`installer/OfficeToolkit.iss`, made with Inno Setup). Both appear under the run's **Artifacts**:
-`OfficeToolkit-Setup` is the file to give to clients. Push a tag like `v0.1.0` and it also attaches `ReceiptCapture.exe` to a GitHub Release.
+`.github/workflows/build.yml` builds, tests, and publishes the app on every push and pull request, then wraps it in
+an installer (`installer/OfficeToolkit.iss`, made with Inno Setup). Two things appear under the run's **Artifacts**:
+
+- `OfficeToolkit-Setup`: the installer. This is the file to give to clients. Push a tag like `v0.1.0` and it is also attached to a GitHub Release.
+- `OfficeToolkit-portable`: the same app as a plain folder (unzip it and run `ReceiptCapture.exe`) for quick testing without installing.
+  Keep the folder together: the exe on its own can't make transcripts.
+
+### Meeting transcripts (offline)
+Transcripts are made on the PC by Whisper, an open-source speech-to-text model, so audio never leaves the computer.
+The model file (`ggml-small.en-q5_1.bin`, about 180 MB, English only) is downloaded by the build, checked, and placed in the
+app's `models` folder, so the installer carries it and clients download nothing extra. The speech engine files sit in `runtimes`.
+To try a different model, change `ModelFileName` in `Services/TranscriptionService.cs` and the model name in `build.yml`.
 
 ## Look and feel
 Light and dark themes with the Sora typeface. The **Theme** button (top right) cycles Auto (follows Windows), Light and Dark,

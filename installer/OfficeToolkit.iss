@@ -27,8 +27,9 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\installer-output
 OutputBaseFilename=OfficeToolkit-Setup-{#AppVersion}
-Compression=lzma2
-SolidCompression=yes
+; The speech model is already compressed, so favour a quick build over squeezing it.
+Compression=lzma2/fast
+SolidCompression=no
 WizardStyle=modern
 ; Lets the installer replace the app while an old copy is still running.
 CloseApplications=yes
@@ -37,7 +38,8 @@ CloseApplications=yes
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; Flags: unchecked
 
 [Files]
-Source: "..\publish\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
+; The whole published folder: the exe, the speech engine (runtimes) and the speech model (models).
+Source: "..\publish\*"; DestDir: "{app}"; Excludes: "*.pdb"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"

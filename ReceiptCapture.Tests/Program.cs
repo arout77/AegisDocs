@@ -2,6 +2,7 @@
 using ReceiptCapture.Core;
 using ReceiptCapture.Core.Documents;
 using ReceiptCapture.Core.Export;
+using ReceiptCapture.Core.Meetings;
 using ReceiptCapture.Core.Parsing;
 using ReceiptCapture.Core.Pdf;
 using ReceiptCapture.Core.Redaction;
@@ -359,6 +360,90 @@ var addressWords = new List<WordBox>
 var addressRegions = RedactionMapper.FindRegions(0, addressWords, allOn);
 Check("two-line address: two boxes", addressRegions.Count(r => r.Kind == SensitiveKind.Address), 2);
 Check("address description", addressRegions[0].Description, "Address");
+
+// ---------- Meetings ----------
+Check("duration under an hour", MeetingFormat.Duration(TimeSpan.FromSeconds(725)), "12:05");
+Check("duration over an hour", MeetingFormat.Duration(TimeSpan.FromSeconds(3725)), "1:02:05");
+Check("duration zero", MeetingFormat.Duration(TimeSpan.Zero), "0:00");
+Check("default title", MeetingFormat.DefaultTitle(new DateTime(2026, 10, 22, 15, 5, 0)), "Meeting 2026-10-22 15:05");
+
+static byte[] MakeWav(int dataBytes, bool finalizeHeader)
+{
+    // 16 kHz, mono, 16-bit = 32000 bytes per second
+    using var ms = new MemoryStream();
+    using var w = new BinaryWriter(ms);
+    w.Write("RIFF"u8.ToArray()); w.Write(36 + (finalizeHeader ? dataBytes : 0)); w.Write("WAVE"u8.ToArray());
+    w.Write("fmt "u8.ToArray()); w.Write(16); w.Write((short)1); w.Write((short)1);
+    w.Write(16000); w.Write(32000); w.Write((short)2); w.Write((short)16);
+    w.Write("data"u8.ToArray()); w.Write(finalizeHeader ? dataBytes : 0);
+    w.Write(new byte[dataBytes]);
+    return ms.ToArray();
+}
+
+Check("wav duration (finished file)", WavInfo.GetDuration(new MemoryStream(MakeWav(64000, true)))?.TotalSeconds, (double?)2.0);
+Check("wav duration (unfinished header)", WavInfo.GetDuration(new MemoryStream(MakeWav(96000, false)))?.TotalSeconds, (double?)3.0);
+Check("not a wav", WavInfo.GetDuration(new MemoryStream(new byte[100])), (TimeSpan?)null);
+
+var meetingRoot = Path.Combine(Path.GetTempPath(), "meetings-test-" + Guid.NewGuid().ToString("N"));
+var meetingStore = new JsonMeetingStore(meetingRoot);
+Check("no meetings folder loads empty", meetingStore.LoadAll().Count, 0);
+
+var done = Meeting.StartNew(new DateTime(2026, 10, 1, 9, 0, 0), true);
+done.Status = MeetingStatus.Completed; done.DurationSeconds = 90; done.Notes = "Client asked about the deadline";
+meetingStore.Save(done);
+
+var crashed = Meeting.StartNew(new DateTime(2026, 10, 2, 9, 0, 0), false);   // stays "Recording": simulates a crash
+meetingStore.Save(crashed);
+File.WriteAllBytes(meetingStore.AudioPathFor(crashed), MakeWav(160000, false));   // 5 seconds on disk
+
+var loaded = meetingStore.LoadAll();
+Check("two meetings loaded", loaded.Count, 2);
+Check("newest first", loaded[0].Id, crashed.Id);
+Check("crashed meeting is marked recovered", loaded[0].Status, MeetingStatus.Recovered);
+Check("crashed meeting keeps its audio length", loaded[0].DurationSeconds, 5.0);
+Check("notes survive a save and load", loaded[1].Notes, "Client asked about the deadline");
+Check("completed meeting stays completed", loaded[1].Status, MeetingStatus.Completed);
+Check("recovery is saved to disk", meetingStore.LoadAll()[0].Status, MeetingStatus.Recovered);
+
+meetingStore.Delete(done);
+Check("delete removes the whole meeting", meetingStore.LoadAll().Count, 1);
+Directory.Delete(meetingRoot, recursive: true);
+
+// ---------- Transcripts ----------
+var rawSegments = new List<TranscriptSegment>
+{
+    new(0, 4, "  Good morning, everyone. "),
+    new(4, 9, " [BLANK_AUDIO]"),
+    new(9, 12, "(silence)"),
+    new(12, 15, "[inaudible]"),
+    new(15, 16, "   "),
+    new(16, 20, "We start with the budget."),
+};
+var cleanedSegments = TranscriptFormatter.Clean(rawSegments);
+Check("noise and empty segments are dropped", cleanedSegments.Count, 3);
+Check("text is trimmed", cleanedSegments[0].Text, "Good morning, everyone.");
+Check("[inaudible] is kept", cleanedSegments[1].Text, "[inaudible]");
+Check("transcript text has timestamps",
+    TranscriptFormatter.ToText(cleanedSegments),
+    "[0:00] Good morning, everyone." + Environment.NewLine + "[0:12] [inaudible]" + Environment.NewLine + "[0:16] We start with the budget.");
+Check("a long recording shows hours", TranscriptFormatter.ToText(new[] { new TranscriptSegment(3725, 3730, "Hi") }), "[1:02:05] Hi");
+
+var transcriptRoot = Path.Combine(Path.GetTempPath(), "transcripts-test-" + Guid.NewGuid().ToString("N"));
+var transcriptStore = new JsonMeetingStore(transcriptRoot);
+var talked = Meeting.StartNew(new DateTime(2026, 10, 3, 10, 0, 0), false);
+talked.Status = MeetingStatus.Completed;
+transcriptStore.Save(talked);
+Check("no transcript yet", transcriptStore.LoadTranscript(talked) == null, true);
+transcriptStore.SaveTranscript(talked, new Transcript { Segments = cleanedSegments, Model = "test-model" });
+talked.HasTranscript = true;
+transcriptStore.Save(talked);
+var reloadedTranscript = transcriptStore.LoadTranscript(talked);
+Check("transcript round-trips", reloadedTranscript?.Segments.Count, (int?)3);
+Check("transcript keeps the model name", reloadedTranscript?.Model, "test-model");
+Check("transcript keeps timings", reloadedTranscript?.Segments[2].StartSeconds, (double?)16.0);
+Check("HasTranscript persists", transcriptStore.LoadAll()[0].HasTranscript, true);
+Check("NoTranscript mirrors it", transcriptStore.LoadAll()[0].NoTranscript, false);
+Directory.Delete(transcriptRoot, recursive: true);
 
 Console.WriteLine($"\n{passed} passed, {failed} failed");
 return failed == 0 ? 0 : 1;

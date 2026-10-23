@@ -20,6 +20,9 @@
             <TabItem Header="Receipts" Style="{StaticResource NavTabItem}">
                 <local:ReceiptsView/>
             </TabItem>
+            <TabItem Header="Meetings" Style="{StaticResource NavTabItem}">
+                <local:MeetingsView x:Name="MeetingsTab"/>
+            </TabItem>
         </TabControl>
 
         <!-- Help and light / dark switch, sitting in the empty space of the tab strip -->
