@@ -298,7 +298,7 @@
                                     <!-- This copy of the program doesn't include the speech model -->
                                     <TextBlock Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
                                                TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               Text="Transcripts need the speech model, which comes with the Office Toolkit installer. This copy doesn't include it."
+                                               Text="Transcripts need the speech model, which comes with the Aegis Docs installer. This copy doesn't include it."
                                                Visibility="{Binding TranscriptionUnavailable, Converter={StaticResource BoolToVis}}"/>
                                 </Grid>
                             </Grid>

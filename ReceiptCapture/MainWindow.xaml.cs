@@ -33,7 +33,7 @@ public partial class MainWindow : Window
     {
         if (!MeetingsTab.IsRecording) return;
 
-        if (!Dialogs.Confirm(this, "A meeting is still being recorded.\n\nStop recording, save it, and close Office Toolkit?"))
+        if (!Dialogs.Confirm(this, "A meeting is still being recorded.\n\nStop recording, save it, and close Aegis Docs?"))
         {
             e.Cancel = true;
             return;

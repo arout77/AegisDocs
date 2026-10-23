@@ -27,7 +27,7 @@ public partial class App : Application
 
         MessageBox.Show(
             $"Something went wrong:\n\n{e.Exception.Message}\n\nDetails were saved to:\n{AppPaths.LogFile}",
-            "Receipt Capture", MessageBoxButton.OK, MessageBoxImage.Warning);
+            "Aegis Docs", MessageBoxButton.OK, MessageBoxImage.Warning);
         e.Handled = true;
     }
 }

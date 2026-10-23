@@ -1,8 +1,8 @@
-# Office Toolkit (working title)
+# Aegis Docs
 
-Windows desktop app with three tabs. **Redact**: finds SSNs, phone numbers, emails, card numbers, dates of birth, street addresses, EINs, bank account and routing numbers, driver's license and passport numbers, plus any words you list (read from the page by OCR); zoom with the on-page controls, Ctrl + mouse wheel, or Ctrl +/-/0, lets you review every hit and draw your own boxes, then saves a copy where the approved areas are burned into the page image so the underlying text no longer exists, and re-reads the saved file to verify. **Documents**: batch PDF tools for law-firm workflows (merge, split by page range or every N pages, Bates numbering, watermark, bulk rename; originals are never modified). **Receipts**: drop in receipts and invoices (PNG, JPG, PDF), it reads them with Windows' built-in
+Windows desktop app with four tabs. **Redact**: finds SSNs, phone numbers, emails, card numbers, dates of birth, street addresses, EINs, bank account and routing numbers, driver's license and passport numbers, plus any words you list (read from the page by OCR); zoom with the on-page controls, Ctrl + mouse wheel, or Ctrl +/-/0, lets you review every hit and draw your own boxes, then saves a copy where the approved areas are burned into the page image so the underlying text no longer exists, and re-reads the saved file to verify. **Documents**: batch PDF tools for law-firm workflows (merge, split by page range or every N pages, Bates numbering, watermark, bulk rename; originals are never modified). **Receipts**: drop in receipts and invoices (PNG, JPG, PDF), it reads them with Windows' built-in
 offline OCR, pre-fills vendor / date / total / tax / category, you confirm, and it keeps a searchable list
-you can export to CSV for Excel or your accountant. Nothing leaves the PC.
+you can export to CSV for Excel or your accountant. **Meetings**: records the microphone and (optionally) the computer's sound, keeps notes, and makes an offline transcript with Whisper. Nothing leaves the PC.
 
 ## Run it
 1. Install **Visual Studio 2022 Community** with the ".NET desktop development" workload (or the .NET 8 SDK).
@@ -10,7 +10,7 @@ you can export to CSV for Excel or your accountant. Nothing leaves the PC.
 3. Drag a receipt onto the window.
 
 ## Make a shareable .exe
-Double-click `publish.bat`. It produces `publish\ReceiptCapture.exe`, a single file that runs on any
+Double-click `publish.bat`. It produces `publish\AegisDocs.exe`, a single file that runs on any
 Windows 10/11 PC without installing .NET.
 
 ## Where your data lives
@@ -33,10 +33,10 @@ Windows 10/11 PC without installing .NET.
 
 ## Automatic builds (GitHub Actions)
 `.github/workflows/build.yml` builds, tests, and publishes the app on every push and pull request, then wraps it in
-an installer (`installer/OfficeToolkit.iss`, made with Inno Setup). Two things appear under the run's **Artifacts**:
+an installer (`installer/AegisDocs.iss`, made with Inno Setup). Two things appear under the run's **Artifacts**:
 
-- `OfficeToolkit-Setup`: the installer. This is the file to give to clients. Push a tag like `v0.1.0` and it is also attached to a GitHub Release.
-- `OfficeToolkit-portable`: the same app as a plain folder (unzip it and run `ReceiptCapture.exe`) for quick testing without installing.
+- `AegisDocs-Setup`: the installer. This is the file to give to clients. Push a tag like `v0.1.0` and it is also attached to a GitHub Release.
+- `AegisDocs-portable`: the same app as a plain folder (unzip it and run `AegisDocs.exe`) for quick testing without installing.
   Keep the folder together: the exe on its own can't make transcripts.
 
 ### Meeting transcripts (offline)

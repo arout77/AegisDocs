@@ -15,7 +15,7 @@ public partial class HelpWindow : Window
         new("Getting started", new[]
         {
             ("What this is",
-             "Office Toolkit has four tabs along the top: Documents (batch PDF tools), Redact (black out private information), " +
+             "Aegis Docs has four tabs along the top: Documents (batch PDF tools), Redact (black out private information), " +
              "Receipts (capture receipts and invoices) and Meetings (record a meeting and keep notes). " +
              "Everything happens on this PC. Nothing is uploaded anywhere."),
             ("Adding files",
@@ -140,7 +140,7 @@ public partial class HelpWindow : Window
              "and Delete permanently removes the recording and its notes."),
             ("If something goes wrong",
              "If the program closes unexpectedly mid-recording, the audio up to that moment is kept and the meeting is " +
-             "marked Recovered the next time you open Office Toolkit. Closing the window during a recording asks you first, " +
+             "marked Recovered the next time you open Aegis Docs. Closing the window during a recording asks you first, " +
              "then saves it."),
             ("Where the files are",
              "Each meeting has its own folder under the program's data folder, containing a standard audio file (WAV), " +

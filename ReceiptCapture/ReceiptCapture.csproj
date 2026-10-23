@@ -9,8 +9,12 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>ReceiptCapture</RootNamespace>
-    <AssemblyName>ReceiptCapture</AssemblyName>
-    <ApplicationTitle>Receipt Capture</ApplicationTitle>
+    <AssemblyName>AegisDocs</AssemblyName>
+    <ApplicationTitle>Aegis Docs</ApplicationTitle>
+    <Product>Aegis Docs</Product>
+    <AssemblyTitle>Aegis Docs</AssemblyTitle>
+    <Description>Aegis Docs</Description>
+    <ApplicationIcon>Assets\AegisDocs.ico</ApplicationIcon>
     <Version>0.1.0</Version>
   </PropertyGroup>
 
@@ -38,6 +42,13 @@
   <ItemGroup>
     <!-- Sora (SIL Open Font License, see Fonts\OFL.txt) is embedded so the app looks the same on every PC. -->
     <Resource Include="Fonts\*.ttf" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Logo: the icon for the exe and the windows, plus the picture shown while the program starts up. -->
+    <Resource Include="Assets\AegisDocs.ico" />
+    <Resource Include="Assets\AegisDocs-logo.png" />
+    <SplashScreen Include="Assets\Splash.jpg" />
   </ItemGroup>
 
   <ItemGroup>

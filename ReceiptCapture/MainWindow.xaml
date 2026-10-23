@@ -4,7 +4,7 @@
         xmlns:ui="http://schemas.modernwpf.com/2019"
         xmlns:local="clr-namespace:ReceiptCapture"
         ui:WindowHelper.UseModernWindowStyle="True"
-        Title="Office Toolkit" Width="1280" Height="780" MinWidth="1000" MinHeight="620"
+        Title="Aegis Docs" Icon="Assets/AegisDocs.ico" Width="1280" Height="780" MinWidth="1000" MinHeight="620"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource BgBrush}"
         FontFamily="{DynamicResource AppFont}" FontSize="13">
@@ -28,7 +28,7 @@
         <!-- Help and light / dark switch, sitting in the empty space of the tab strip -->
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,5,18,0">
             <Button Content="? Help" Style="{StaticResource SecondaryButton}" Padding="14,6"
-                    ToolTip="How to use Office Toolkit (F1)" Click="HelpButton_Click"/>
+                    ToolTip="How to use Aegis Docs (F1)" Click="HelpButton_Click"/>
             <Button x:Name="ThemeButton" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" Padding="14,6"
                     ToolTip="Switch between Auto (follows Windows), Light and Dark"
                     Click="ThemeButton_Click"/>

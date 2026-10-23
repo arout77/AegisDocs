@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ui="http://schemas.modernwpf.com/2019"
         ui:WindowHelper.UseModernWindowStyle="True"
-        Title="Office Toolkit Help" Width="900" Height="660" MinWidth="640" MinHeight="420"
+        Title="Aegis Docs Help" Icon="Assets/AegisDocs.ico" Width="900" Height="660" MinWidth="640" MinHeight="420"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource BgBrush}"
         FontFamily="{DynamicResource AppFont}" FontSize="13">

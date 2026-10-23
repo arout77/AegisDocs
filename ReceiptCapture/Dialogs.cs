@@ -5,7 +5,7 @@ namespace ReceiptCapture;
 /// <summary>Small helpers so views and view models can show message boxes without repeating themselves.</summary>
 public static class Dialogs
 {
-    private const string Title = "Office Toolkit";
+    private const string Title = "Aegis Docs";
 
     public static void Info(DependencyObject anchor, string text)
     {

@@ -95,7 +95,7 @@ jobs:
       - name: Upload portable app folder
         uses: actions/upload-artifact@v4
         with:
-          name: OfficeToolkit-portable
+          name: AegisDocs-portable
           path: publish
           if-no-files-found: error
 
@@ -104,14 +104,14 @@ jobs:
         run: |
           choco install innosetup -y --no-progress
           $version = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.1.0' }
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" installer\OfficeToolkit.iss
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" installer\AegisDocs.iss
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: OfficeToolkit-Setup
-          path: installer-output/OfficeToolkit-Setup-*.exe
+          name: AegisDocs-Setup
+          path: installer-output/AegisDocs-Setup-*.exe
           if-no-files-found: error
 
   release:
@@ -125,10 +125,10 @@ jobs:
       - name: Download installer
         uses: actions/download-artifact@v4
         with:
-          name: OfficeToolkit-Setup
+          name: AegisDocs-Setup
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: OfficeToolkit-Setup-*.exe
+          files: AegisDocs-Setup-*.exe
           generate_release_notes: true
