@@ -42,7 +42,7 @@ an installer (`installer/AegisDocs.iss`, made with Inno Setup). Two things appea
 ### Meeting transcripts (offline)
 Transcripts are made on the PC by Whisper, an open-source speech-to-text model, so audio never leaves the computer.
 The model file (`ggml-small.en-q5_1.bin`, about 180 MB, English only) is downloaded by the build, checked, and placed in the
-app's `models` folder, so the installer carries it and clients download nothing extra. The speech engine files sit in `runtimes`.
+app's `models` folder, so the installer carries it and clients download nothing extra. The speech engine files sit in `runtimes`; `tools/add-speech-engine.ps1` copies them there after publishing and stops the build if any are missing.
 To try a different model, change `ModelFileName` in `Services/TranscriptionService.cs` and the model name in `build.yml`.
 
 ## Look and feel

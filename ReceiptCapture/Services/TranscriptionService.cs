@@ -37,6 +37,34 @@ public sealed class TranscriptionService
         var modelPath = FindModel()
             ?? throw new FileNotFoundException("The speech model isn't part of this copy of the program.");
 
+        try
+        {
+            return await TranscribeCoreAsync(modelPath, wavPath, progress, cancellation);
+        }
+        catch (Exception ex) when (IsEngineProblem(ex))
+        {
+            // Say where the program looked, so a missing-files problem is obvious from the message alone.
+            throw new InvalidOperationException(ex.Message + "\n\n" + DescribeEngineFiles(), ex);
+        }
+    }
+
+    private static bool IsEngineProblem(Exception ex)
+        => ex is FileNotFoundException or DllNotFoundException or BadImageFormatException or PlatformNotSupportedException
+           || ex.Message.Contains("native", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A plain-English line about whether the speech engine files are where the program expects them.</summary>
+    public static string DescribeEngineFiles()
+    {
+        var normal = Path.Combine(AppContext.BaseDirectory, "runtimes", "win-x64", "whisper.dll");
+        var fallback = Path.Combine(AppContext.BaseDirectory, "runtimes", "noavx", "win-x64", "whisper.dll");
+        return "Speech engine files: " +
+               (File.Exists(normal) ? "found" : "MISSING") + " at " + normal + "; " +
+               "backup set " + (File.Exists(fallback) ? "found" : "MISSING") + " at " + fallback + ".";
+    }
+
+    private static async Task<Transcript> TranscribeCoreAsync(
+        string modelPath, string wavPath, IProgress<int>? progress, CancellationToken cancellation)
+    {
         return await Task.Run(async () =>
         {
             using var factory = WhisperFactory.FromPath(modelPath);

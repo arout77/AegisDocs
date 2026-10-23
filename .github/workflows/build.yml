@@ -44,6 +44,11 @@ jobs:
           -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
           -o publish
 
+      # Copies Whisper's native engine DLLs next to the exe and stops the build if any are missing.
+      - name: Add speech engine files
+        shell: pwsh
+        run: ./tools/add-speech-engine.ps1 -PublishDir publish
+
       # The speech model is a ~180 MB file. It is cached between runs so it is only downloaded once.
       - name: Restore speech model from cache
         id: model-cache
@@ -71,10 +76,6 @@ jobs:
 
           New-Item -ItemType Directory -Force publish/models | Out-Null
           Copy-Item $model publish/models/
-
-          # Keep only the Windows speech-engine files (the package also carries Linux, Mac and phone versions).
-          Get-ChildItem publish/runtimes -Directory -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -notin @('win-x64', 'noavx') } | Remove-Item -Recurse -Force
 
           # The speech engine needs Microsoft's Visual C++ runtime. Ship its DLLs beside the engine so a client PC
           # that has never installed it still works.
