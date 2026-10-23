@@ -396,13 +396,13 @@ var crashed = Meeting.StartNew(new DateTime(2026, 10, 2, 9, 0, 0), false);   // 
 meetingStore.Save(crashed);
 File.WriteAllBytes(meetingStore.AudioPathFor(crashed), MakeWav(160000, false));   // 5 seconds on disk
 
-var loaded = meetingStore.LoadAll();
-Check("two meetings loaded", loaded.Count, 2);
-Check("newest first", loaded[0].Id, crashed.Id);
-Check("crashed meeting is marked recovered", loaded[0].Status, MeetingStatus.Recovered);
-Check("crashed meeting keeps its audio length", loaded[0].DurationSeconds, 5.0);
-Check("notes survive a save and load", loaded[1].Notes, "Client asked about the deadline");
-Check("completed meeting stays completed", loaded[1].Status, MeetingStatus.Completed);
+var loadedMeetings = meetingStore.LoadAll();
+Check("two meetings loaded", loadedMeetings.Count, 2);
+Check("newest first", loadedMeetings[0].Id, crashed.Id);
+Check("crashed meeting is marked recovered", loadedMeetings[0].Status, MeetingStatus.Recovered);
+Check("crashed meeting keeps its audio length", loadedMeetings[0].DurationSeconds, 5.0);
+Check("notes survive a save and load", loadedMeetings[1].Notes, "Client asked about the deadline");
+Check("completed meeting stays completed", loadedMeetings[1].Status, MeetingStatus.Completed);
 Check("recovery is saved to disk", meetingStore.LoadAll()[0].Status, MeetingStatus.Recovered);
 
 meetingStore.Delete(done);
