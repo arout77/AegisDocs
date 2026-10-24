@@ -1,5 +1,3 @@
-using System.Text;
-
 namespace ReceiptCapture.Core.Redaction;
 
 /// <summary>Turns OCR words into black-box regions covering the sensitive text found in them.</summary>
@@ -8,24 +6,10 @@ public static class RedactionMapper
     public static List<RedactionRegion> FindRegions(
         int page, IReadOnlyList<WordBox> words, FindOptions options, double padding = 3)
     {
-        var ordered = words.Where(w => !string.IsNullOrWhiteSpace(w.Text))
-                           .OrderBy(w => w.Line).ThenBy(w => w.X)
-                           .ToList();
-
-        // Rebuild the page text, remembering where each word sits inside it.
-        var text = new StringBuilder();
-        var spans = new List<(int Start, int End)>();
-        int previousLine = int.MinValue;
-        foreach (var word in ordered)
-        {
-            if (text.Length > 0) text.Append(word.Line == previousLine ? ' ' : '\n');
-            int start = text.Length;
-            text.Append(word.Text);
-            spans.Add((start, text.Length));
-            previousLine = word.Line;
-        }
-
-        var pageText = text.ToString();
+        var built = PageTextBuilder.Build(words);
+        var ordered = built.Words;
+        var spans = built.Spans;
+        var pageText = built.Text;
         var regions = new List<RedactionRegion>();
 
         foreach (var match in SensitiveDataFinder.Find(pageText, options))

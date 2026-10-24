@@ -17,6 +17,9 @@
             <TabItem Header="Redact" Style="{StaticResource NavTabItem}">
                 <local:RedactionView/>
             </TabItem>
+            <TabItem Header="Compliance" Style="{StaticResource NavTabItem}">
+                <local:ComplianceView/>
+            </TabItem>
             <TabItem Header="Receipts" Style="{StaticResource NavTabItem}">
                 <local:ReceiptsView/>
             </TabItem>

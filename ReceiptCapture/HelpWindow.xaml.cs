@@ -15,7 +15,8 @@ public partial class HelpWindow : Window
         new("Getting started", new[]
         {
             ("What this is",
-             "Aegis Docs has four tabs along the top: Documents (batch PDF tools), Redact (black out private information), " +
+             "Aegis Docs has five tabs along the top: Documents (batch PDF tools), Redact (black out private information), " +
+             "Compliance (check documents for sensitive information and save a report), " +
              "Receipts (capture receipts and invoices) and Meetings (record a meeting and keep notes). " +
              "Everything happens on this PC. Nothing is uploaded anywhere."),
             ("Adding files",
@@ -92,6 +93,36 @@ public partial class HelpWindow : Window
              "and tells you whether anything still shows."),
             ("Always double-check",
              "Automatic finding is a helpful first pass, not a guarantee. Look through every page before you share the result."),
+        }),
+
+        new("Compliance", new[]
+        {
+            ("What it does",
+             "Checks documents for sensitive information and tells you what it found and where, without changing the documents. " +
+             "It works on scanned and digital PDFs, Word documents and pictures. Use it to look over documents before they are shared or filed, " +
+             "then use the Redact tab to black out what you find."),
+            ("Adding files",
+             "Click Add files… or drop files onto the tab. You can add several at once. Folders aren't scanned yet: add the files inside. " +
+             "A password-protected PDF asks for its password when it is scanned; a protected Word file has to have its password removed first."),
+            ("Choosing what to check against",
+             "Pick a profile on the right: HIPAA Safe Harbor identifiers, PCI DSS cardholder data, financial (GLBA-style) personal information, " +
+             "or general personal information. Under the picker, \"What it looks for\" lists exactly what that profile checks, and " +
+             "\"What it can't find\" lists what you still have to check yourself, such as names, photographs and details written in ordinary sentences. " +
+             "To catch specific names or words, type them in the box underneath, one per line."),
+            ("Scanning and reading the results",
+             "Press Scan files. Each file shows a result in the list. Click a file to see each item found: how serious it is (High, Medium or Low for that profile), " +
+             "the page and line, what kind of item it is, and the value. Values are partly hidden on purpose, for example •••-••-6789. " +
+             "\"Nothing found by this scan\" does not mean a document has no sensitive information, only that this check found none. " +
+             "If a page had no readable text, the result says so: anything on that page was not checked."),
+            ("Saving a report",
+             "Save report… makes a web page (it opens in any browser, and you can print it to PDF) or a CSV spreadsheet. " +
+             "It lists the profile, the date, each file with a fingerprint (SHA-256) of the file as it was scanned, every item found, " +
+             "and what the check cannot find. Found values are partly hidden in it too. It still names your files, so treat it as confidential."),
+            ("Changing the profile",
+             "If you switch profiles after a scan, the earlier results are cleared because they belong to the profile they were made with. Scan again."),
+            ("A first pass, not a guarantee",
+             "This check helps you review documents. It can miss things and it can flag things that are harmless, and it does not certify " +
+             "that a document or your organization meets any law or standard. Have a person review the documents too."),
         }),
 
         new("Receipts", new[]

@@ -1,5 +1,6 @@
 // A tiny dependency-free test runner:  dotnet run --project ReceiptCapture.Tests
 using ReceiptCapture.Core;
+using ReceiptCapture.Core.Compliance;
 using ReceiptCapture.Core.Documents;
 using ReceiptCapture.Core.Export;
 using ReceiptCapture.Core.Meetings;
@@ -565,6 +566,247 @@ Check("input: no extension", InputFile.Classify("README"), InputKind.Unsupported
     Check("big picture keeps its shape", bigH, 1800);
     var (smallW, smallH) = ImagePageSizing.PixelSize(800, 600, 2400);
     Check("small picture is not enlarged", (smallW, smallH), (800, 600));
+}
+
+// ---------- 17. Compliance scanner: extra detectors ----------
+{
+    // Each helper turns on exactly one new detector so a test shows that detector alone.
+    List<(SensitiveKind Kind, string Text)> Hits(string text, FindOptions o) => Found(text, o);
+    var none = new FindOptions { Ssn = false, Phone = false, Email = false, CreditCard = false, DateOfBirth = false, Ein = false,
+        BankAccount = false, RoutingNumber = false, DriversLicense = false, Passport = false, Address = false };
+
+    Check("new detectors are off by default", Found("MRN: 12345678 fax: 555-123-4567 192.168.1.20 www.example.com", allOn).Count(f =>
+        f.Kind is SensitiveKind.Mrn or SensitiveKind.Fax or SensitiveKind.IpAddress or SensitiveKind.Url), 0);
+
+    // medical record numbers
+    var mrn = new FindOptions { Mrn = true, Ssn = false, Phone = false, Email = false, CreditCard = false, DateOfBirth = false, Ein = false,
+        BankAccount = false, RoutingNumber = false, DriversLicense = false, Passport = false, Address = false };
+    Check("mrn label", Hits("MRN: 00481516", mrn).FirstOrDefault(), (SensitiveKind.Mrn, "00481516"));
+    Check("mrn long label", Hits("Medical Record Number 4815162342", mrn)[0].Text, "4815162342");
+    Check("mrn patient id", Hits("Patient ID: A123-456", mrn)[0].Text, "A123-456");
+    Check("mrn needs a digit", Hits("MRN: pending", mrn).Count, 0);
+    Check("mrn too short ignored", Hits("MRN 12", mrn).Count, 0);
+
+    // health plan ids
+    var planOpts = new FindOptions { HealthPlanId = true, Ssn = false, Phone = false, Email = false, CreditCard = false, DateOfBirth = false, Ein = false,
+        BankAccount = false, RoutingNumber = false, DriversLicense = false, Passport = false, Address = false };
+    Check("member id", Hits("Member ID: XYZ123456789", planOpts)[0].Text, "XYZ123456789");
+    Check("policy number", Hits("Policy No. 998877665", planOpts)[0].Text, "998877665");
+    Check("subscriber id", Hits("Subscriber ID W1234567", planOpts)[0].Text, "W1234567");
+    Check("medicare MBI found without a label", Hits("Medicare 1EG4-TE5-MK73 on file", planOpts).Any(h => h.Text == "1EG4-TE5-MK73"), true);
+    Check("plain word is not an MBI", Hits("Unremarkable", planOpts).Count, 0);
+
+    // card extras
+    var cardx = new FindOptions { CardCvv = true, CardExpiry = true, CardTrackData = true, CreditCard = true, Ssn = false, Phone = false, Email = false,
+        DateOfBirth = false, Ein = false, BankAccount = false, RoutingNumber = false, DriversLicense = false, Passport = false, Address = false };
+    Check("cvv labelled", Hits("CVV: 123", cardx)[0], (SensitiveKind.CardCvv, "123"));
+    Check("cvc2 four digits", Hits("CVC2 1234", cardx)[0].Text, "1234");
+    Check("security code", Hits("Security code 987", cardx)[0].Text, "987");
+    Check("a bare 3-digit number is not a cvv", Hits("Room 123", cardx).Count, 0);
+    Check("expiry labelled", Hits("Exp: 12/27", cardx)[0], (SensitiveKind.CardExpiry, "12/27"));
+    Check("expiry 'valid thru'", Hits("valid thru 03/2028", cardx)[0].Text, "03/2028");
+    var cardLine = Hits("Visa 4111 1111 1111 1111  12/27", cardx);
+    Check("expiry right after a card number, no label", cardLine.Any(h => h.Kind == SensitiveKind.CardExpiry && h.Text == "12/27"), true);
+    Check("...and the card itself still found", cardLine.Any(h => h.Kind == SensitiveKind.CreditCard), true);
+    Check("a date far from any card is not an expiry", Hits("Filed 12/27 by the clerk", cardx).Count, 0);
+    var track2 = Hits("read ;4111111111111111=27121010000000000000? ok", cardx);
+    Check("track 2 found as one item", track2.Count, 1);
+    Check("track 2 kind", track2[0].Kind, SensitiveKind.CardTrackData);
+    var track1 = Hits("%B4111111111111111^DOE/JOHN^2712101000000000000?", cardx);
+    Check("track 1 swallows the card number", track1.Count, 1);
+    Check("track 1 kind", track1[0].Kind, SensitiveKind.CardTrackData);
+
+    // fax, urls, ips
+    var net = new FindOptions { Fax = true, Url = true, IpAddress = true, Phone = true, Ssn = false, Email = true, CreditCard = false, DateOfBirth = false,
+        Ein = false, BankAccount = false, RoutingNumber = false, DriversLicense = false, Passport = false, Address = false };
+    var fax = Hits("Tel (555) 123-4567  Fax: (555) 987-6543", net);
+    Check("fax found", fax.Any(h => h.Kind == SensitiveKind.Fax && h.Text == "(555) 987-6543"), true);
+    Check("tel stays a phone", fax.Any(h => h.Kind == SensitiveKind.Phone && h.Text == "(555) 123-4567"), true);
+    Check("fax number is not also a phone", fax.Count(h => h.Text == "(555) 987-6543"), 1);
+    Check("F: shorthand counts as fax", Hits("T: 555-111-2222  F: 555-333-4444", net).Any(h => h.Kind == SensitiveKind.Fax && h.Text == "555-333-4444"), true);
+    Check("'Staff:' is not a fax label", Hits("Staff: 555-333-4444", net).Count(h => h.Kind == SensitiveKind.Fax), 0);
+    Check("url with path", Hits("See https://portal.example.com/patients/42?x=1.", net)[0], (SensitiveKind.Url, "https://portal.example.com/patients/42?x=1"));
+    Check("www url", Hits("visit www.example.org today", net)[0].Text, "www.example.org");
+    Check("email domain is not a url", Hits("jane@www.example.org", net).Count(h => h.Kind == SensitiveKind.Url), 0);
+    Check("ipv4", Hits("from 192.168.10.25 at noon", net)[0], (SensitiveKind.IpAddress, "192.168.10.25"));
+    Check("ipv4 with out-of-range octet ignored", Hits("version 300.1.1.1", net).Count(h => h.Kind == SensitiveKind.IpAddress), 0);
+    Check("three numbers are not an ip", Hits("10.10.10", net).Count, 0);
+    Check("ipv6", Hits("addr 2001:0db8:85a3:0000:0000:8a2e:0370:7334 ok", net)[0].Kind, SensitiveKind.IpAddress);
+
+    // ages over 89
+    var age = new FindOptions { AgeOver89 = true, Ssn = false, Phone = false, Email = false, CreditCard = false, DateOfBirth = false, Ein = false,
+        BankAccount = false, RoutingNumber = false, DriversLicense = false, Passport = false, Address = false };
+    Check("95 years old", Hits("a 95 years old patient", age)[0], (SensitiveKind.AgeOver89, "95"));
+    Check("102-year-old", Hits("a 102-year-old woman", age)[0].Text, "102");
+    Check("y/o", Hits("92 y/o male", age)[0].Text, "92");
+    Check("age label", Hits("Age: 91", age)[0].Text, "91");
+    Check("aged", Hits("aged 97 at death", age)[0].Text, "97");
+    Check("89 is not over 89", Hits("89 years old", age).Count, 0);
+    Check("a company's 95 years is ignored", Hits("in business for 95 years", age).Count, 0);
+    Check("'page 95' is not an age", Hits("see page 95", age).Count, 0);
+    Check("money is not an age", Hits("$95 years old", age).Count, 0);
+
+    // every date
+    var dates = new FindOptions { AllDates = true, Ssn = false, Phone = false, Email = false, CreditCard = false, DateOfBirth = false, Ein = false,
+        BankAccount = false, RoutingNumber = false, DriversLicense = false, Passport = false, Address = false };
+    foreach (var d in new[] { "03/14/2025", "3/4/25", "14.03.2025", "2025-03-14", "March 14, 2025", "Mar 14", "14 March 2025", "14th March", "March 2025", "Sept. 3, 2024" })
+        Check("date " + d, Hits("Seen on " + d + " ok", dates).Any(h => h.Kind == SensitiveKind.Date && h.Text.Contains(d.Split(' ')[0].TrimEnd(',', '.'))), true);
+    Check("date whole text", Hits("Seen on March 14, 2025 ok", dates)[0].Text, "March 14, 2025");
+    Check("month 13 is not a date", Hits("13/13/2025", dates).Count, 0);
+    Check("phone is not a date", Hits("555-123-4567", dates).Count, 0);
+    Check("ssn is not a date", Hits("123-45-6789", dates).Count, 0);
+    Check("ip address is not a date", Hits("10.10.10.10", dates).Count, 0);
+    Check("lower-case 'may' is not a date", Hits("you may 5 times", dates).Count, 0);
+    Check("labelled dob wins over generic date", Found("DOB: 03/14/1985", new FindOptions { AllDates = true })[0].Kind, SensitiveKind.DateOfBirth);
+
+    // zip codes
+    var zip = new FindOptions { ZipCode = true, Ssn = false, Phone = false, Email = false, CreditCard = false, DateOfBirth = false, Ein = false,
+        BankAccount = false, RoutingNumber = false, DriversLicense = false, Passport = false, Address = false };
+    Check("zip after state", Hits("Springfield, IL 62704", zip)[0], (SensitiveKind.ZipCode, "62704"));
+    Check("zip+4", Hits("Austin TX 78701-1234", zip)[0].Text, "78701-1234");
+    Check("labelled zip", Hits("ZIP code: 90210", zip)[0].Text, "90210");
+    Check("bare five digits are not a zip", Hits("Invoice 62704 total", zip).Count, 0);
+    Check("zip inside a street address belongs to the address", Found("123 Main Street, Springfield, IL 62704", new FindOptions { ZipCode = true })
+        .Count(f => f.Kind == SensitiveKind.ZipCode), 0);
+}
+
+// ---------- 18. Card brands ----------
+Check("visa", CardBrand.Detect("4111111111111111"), "Visa");
+Check("mastercard 51", CardBrand.Detect("5555555555554444"), "Mastercard");
+Check("mastercard 2-series", CardBrand.Detect("2223003122003222"), "Mastercard");
+Check("amex", CardBrand.Detect("378282246310005"), "American Express");
+Check("discover", CardBrand.Detect("6011111111111117"), "Discover");
+Check("diners", CardBrand.Detect("30569309025904"), "Diners Club");
+Check("jcb", CardBrand.Detect("3530111333300000"), "JCB");
+Check("unknown brand", CardBrand.Detect("9999999999999995"), (string?)null);
+Check("too short", CardBrand.Detect("4111"), (string?)null);
+
+// ---------- 19. Masking ----------
+Check("mask ssn", MatchMasker.Mask(SensitiveKind.Ssn, "123-45-6789"), "•••-••-6789");
+Check("mask card", MatchMasker.Mask(SensitiveKind.CreditCard, "4111 1111 1111 1111"), "•••• •••• •••• 1111");
+Check("mask phone", MatchMasker.Mask(SensitiveKind.Phone, "(555) 123-4567"), "(•••) •••-4567");
+Check("mask short number hides everything", MatchMasker.Mask(SensitiveKind.Mrn, "12345"), "•••••");
+Check("mask email", MatchMasker.Mask(SensitiveKind.Email, "jane.doe@firm.com"), "j•••@firm.com");
+Check("mask date keeps only the shape", MatchMasker.Mask(SensitiveKind.Date, "03/14/1985"), "••/••/••••");
+Check("mask word date", MatchMasker.Mask(SensitiveKind.DateOfBirth, "March 14, 1985"), "••••• ••, ••••");
+Check("mask cvv", MatchMasker.Mask(SensitiveKind.CardCvv, "123"), "•••");
+Check("mask track data", MatchMasker.Mask(SensitiveKind.CardTrackData, ";4111111111111111=2712?"), "[track data hidden]");
+Check("mask address", MatchMasker.Mask(SensitiveKind.Address, "123 Main Street\nSpringfield, IL 62704"), "[address hidden]");
+Check("mask url keeps the host only", MatchMasker.Mask(SensitiveKind.Url, "https://portal.example.com/patients/42"), "https://portal.example.com/…");
+Check("mask ip", MatchMasker.Mask(SensitiveKind.IpAddress, "192.168.10.25"), "192.168.•••.•••");
+Check("mask custom term", MatchMasker.Mask(SensitiveKind.CustomTerm, "Jane Doe"), "[your term]");
+Check("mask never leaks the digits", MatchMasker.Mask(SensitiveKind.Ssn, "123-45-6789").Contains("123-45"), false);
+
+// ---------- 20. Profiles ----------
+Check("four profiles", ComplianceProfiles.All.Count, 4);
+Check("profile ids are unique", ComplianceProfiles.All.Select(p => p.Id).Distinct().Count(), 4);
+Check("lookup by id", ComplianceProfiles.ById("PCI")?.Name, "PCI DSS cardholder data");
+Check("every profile says what it can't find", ComplianceProfiles.All.All(p => p.NotChecked.Count > 0), true);
+Check("every check has a plain-language explanation", ComplianceProfiles.All.All(p => p.Checks.All(c => c.Explanation.Length > 5)), true);
+Check("no profile lists a kind twice", ComplianceProfiles.All.All(p => p.Checks.Select(c => c.Kind).Distinct().Count() == p.Checks.Count), true);
+{
+    var pci = ComplianceProfiles.Pci.BuildOptions();
+    Check("pci: card on", pci.CreditCard, true);
+    Check("pci: cvv on", pci.CardCvv, true);
+    Check("pci: ssn off", pci.Ssn, false);
+    Check("pci: phone off", pci.Phone, false);
+    Check("pci: dates off", pci.AllDates, false);
+    var hip = ComplianceProfiles.Hipaa.BuildOptions(new[] { "Jane Doe" });
+    Check("hipaa: mrn on", hip.Mrn, true);
+    Check("hipaa: all dates on", hip.AllDates, true);
+    Check("hipaa: ein off", hip.Ein, false);
+    Check("hipaa: custom terms carried", hip.CustomTerms.Count, 1);
+    Check("hipaa covers the key identifiers", new[] { SensitiveKind.Ssn, SensitiveKind.Mrn, SensitiveKind.HealthPlanId, SensitiveKind.Phone, SensitiveKind.Fax,
+        SensitiveKind.Email, SensitiveKind.Url, SensitiveKind.IpAddress, SensitiveKind.ZipCode, SensitiveKind.AgeOver89, SensitiveKind.Date }
+        .All(k => ComplianceProfiles.Hipaa.Checks.Any(c => c.Kind == k)), true);
+    Check("pci: cvv is high severity", ComplianceProfiles.Pci.SeverityOf(SensitiveKind.CardCvv), FindingSeverity.High);
+    Check("hipaa: plain dates are low severity", ComplianceProfiles.Hipaa.SeverityOf(SensitiveKind.Date), FindingSeverity.Low);
+}
+
+// ---------- 21. Scanning page text ----------
+{
+    var chart = "Patient: Jane Doe\nMRN: 00481516  DOB: 03/14/1941\nSSN 123-45-6789\nPhone (555) 123-4567  Fax: (555) 987-6543\n" +
+                "Seen 2025-03-14, a 84 y/o woman and her 96 years old mother.\nBill to 100 Main Street, Springfield, IL 62704";
+    var page2 = "Insurance Member ID: ABC12345678\nCard 4111 1111 1111 1111 exp 12/27 CVV 123\nEmail jane@example.com";
+    var result = ComplianceScanner.ScanPageTexts(@"C:\docs\chart.pdf", "abc123", new[] { chart, "", page2 }, ComplianceProfiles.Hipaa, new[] { "Jane Doe" });
+
+    var kinds1 = result.Findings.Where(f => f.Page == 1).Select(f => f.Kind).ToHashSet();
+    foreach (var k in new[] { SensitiveKind.Mrn, SensitiveKind.DateOfBirth, SensitiveKind.Ssn, SensitiveKind.Phone, SensitiveKind.Fax, SensitiveKind.Date,
+                              SensitiveKind.AgeOver89, SensitiveKind.Address, SensitiveKind.CustomTerm })
+        Check("page 1 has " + k, kinds1.Contains(k), true);
+    var kinds3 = result.Findings.Where(f => f.Page == 3).Select(f => f.Kind).ToHashSet();
+    foreach (var k in new[] { SensitiveKind.HealthPlanId, SensitiveKind.CreditCard, SensitiveKind.Email })
+        Check("page 3 has " + k, kinds3.Contains(k), true);
+    Check("hipaa profile does not look for card cvv", kinds3.Contains(SensitiveKind.CardCvv), false);
+    Check("hipaa profile does not look for card expiry", kinds3.Contains(SensitiveKind.CardExpiry), false);
+    Check("the 84 y/o is not flagged", result.Findings.Any(f => f.Kind == SensitiveKind.AgeOver89 && f.MaskedValue == "••" && f.Page == 1), true);
+    Check("only one age over 89", result.Findings.Count(f => f.Kind == SensitiveKind.AgeOver89), 1);
+    Check("page count", result.PageCount, 3);
+    Check("blank page counted", result.PagesWithoutText, 1);
+    Check("blank page noted", result.Note, "1 page had no readable text, so anything on it was not checked");
+    Check("card brand shown", result.Findings.Any(f => f.Description == "Card number (Visa)"), true);
+    Check("high severity first", result.Findings[0].Severity, FindingSeverity.High);
+    Check("severities are in order", result.Findings.Select(f => (int)f.Severity).SequenceEqual(result.Findings.Select(f => (int)f.Severity).OrderBy(x => x)), true);
+    Check("line numbers", result.Findings.First(f => f.Kind == SensitiveKind.Ssn).Line, 3);
+    Check("status never says passed", result.StatusText.Contains("pass", StringComparison.OrdinalIgnoreCase) || result.StatusText.Contains("compliant", StringComparison.OrdinalIgnoreCase), false);
+    Check("no raw values in findings", result.Findings.Any(f => f.MaskedValue.Contains("123-45-6789") || f.MaskedValue.Contains("4111 1111 1111 1111")), false);
+
+    var pciResult = ComplianceScanner.ScanPageTexts("card.pdf", null, new[] { page2 }, ComplianceProfiles.Pci);
+    var pciKinds = pciResult.Findings.Select(f => f.Kind).ToHashSet();
+    Check("pci finds card, cvv and expiry", pciKinds.SetEquals(new[] { SensitiveKind.CreditCard, SensitiveKind.CardCvv, SensitiveKind.CardExpiry }), true);
+    Check("pci does not report the email", pciKinds.Contains(SensitiveKind.Email), false);
+
+    var emptyResult = ComplianceScanner.ScanPageTexts("empty.pdf", null, new[] { "just a letter about lunch" }, ComplianceProfiles.GeneralPii);
+    Check("nothing found wording", emptyResult.StatusText, "Nothing found by this scan");
+    var allBlank = ComplianceScanner.ScanPageTexts("blank.pdf", null, new[] { "", "  " }, ComplianceProfiles.GeneralPii);
+    Check("all-blank note", allBlank.Note, "no readable text was found on any page");
+    Check("one item wording", ComplianceScanner.ScanPageTexts("x.pdf", null, new[] { "SSN 123-45-6789" }, ComplianceProfiles.GeneralPii).StatusText, "1 item to review");
+    Check("skipped wording", ComplianceScanner.Skipped("locked.pdf", "needs a password").StatusText, "Not scanned: needs a password");
+
+    // from OCR words
+    var ocr = new ScannedPage(Array.Empty<byte>(), 100, 100, 100, 100, new List<WordBox>
+    {
+        new("SSN", 0, 0, 10, 5, 0), new("123-45-6789", 12, 0, 40, 5, 0), new("Thanks", 0, 10, 20, 5, 1),
+    });
+    var fromWords = ComplianceScanner.ScanPages("ocr.png", null, new[] { ocr }, ComplianceProfiles.GeneralPii);
+    Check("scan from OCR words", fromWords.Findings.Count, 1);
+    Check("scan from OCR words kind", fromWords.Findings[0].Kind, SensitiveKind.Ssn);
+}
+
+// ---------- 22. Report writer ----------
+{
+    var doc = ComplianceScanner.ScanPageTexts("C:/clients/=cmd<script>.pdf", "deadbeef",
+        new[] { "SSN 123-45-6789\nCard 4111 1111 1111 1111" }, ComplianceProfiles.GeneralPii);
+    var skipped = ComplianceScanner.Skipped("C:/clients/locked.pdf", "needs a password");
+    var clean = ComplianceScanner.ScanPageTexts("C:/clients/fine.pdf", "cafe", new[] { "lunch on friday" }, ComplianceProfiles.GeneralPii);
+    var report = new ScanReport(ComplianceProfiles.GeneralPii, new[] { doc, skipped, clean },
+        new DateTimeOffset(2026, 10, 24, 9, 30, 0, TimeSpan.Zero), "0.1.0", 2);
+
+    Check("report totals: findings", report.TotalFindings, 2);
+    Check("report totals: scanned", report.FilesScanned, 2);
+    Check("report totals: skipped", report.FilesSkipped, 1);
+
+    var html = ScanReportWriter.ToHtml(report);
+    Check("html names the profile", html.Contains("General personal information"), true);
+    Check("html carries the disclaimer", html.Contains("not a guarantee"), true);
+    Check("html says values are hidden", html.Contains("partly hidden"), true);
+    Check("html shows masked ssn", html.Contains("•••-••-6789"), true);
+    Check("html never contains the raw ssn", html.Contains("123-45-6789"), false);
+    Check("html never contains the raw card", html.Contains("4111 1111 1111 1111"), false);
+    Check("html escapes file names", html.Contains("<script>"), false);
+    Check("html lists what it can't find", html.Contains("What this check cannot find"), true);
+    Check("html shows the file hash", html.Contains("deadbeef"), true);
+    Check("html says the skipped file was not checked", html.Contains("not</strong> checked"), true);
+    Check("html mentions the user's own words", html.Contains("2 word(s) or name(s) you added"), true);
+    Check("html avoids 'compliant' as a verdict", html.Contains("is compliant") || html.Contains("passed") || html.Contains("ensures compliance"), false);
+
+    var reportCsv = ScanReportWriter.ToCsv(report);
+    var csvLines = reportCsv.TrimEnd().Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+    Check("csv header + 2 findings + skipped + clean", csvLines.Length, 1 + 2 + 1 + 1);
+    Check("csv never contains the raw ssn", reportCsv.Contains("123-45-6789"), false);
+    Check("csv guards against formulas in file names", reportCsv.Contains("\"'=cmd"), true);
+    Check("csv quotes embedded quotes", ScanReportWriter.Cell("a\"b"), "\"a\"\"b\"");
+    Check("csv skipped row", reportCsv.Contains("Not scanned: needs a password"), true);
 }
 
 Console.WriteLine($"\n{passed} passed, {failed} failed");
