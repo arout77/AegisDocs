@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Windows.Input;
 using ReceiptCapture.Core;
 using ReceiptCapture.Core.Documents;
+using ReceiptCapture.Core.Pdf;
 using ReceiptCapture.Services;
 
 namespace ReceiptCapture.ViewModels;
@@ -13,6 +14,7 @@ namespace ReceiptCapture.ViewModels;
 public sealed class DocItem : ObservableObject
 {
     private int? _pages;
+    private bool _isLocked;
 
     public DocItem(string filePath)
     {
@@ -32,7 +34,14 @@ public sealed class DocItem : ObservableObject
         set { if (SetProperty(ref _pages, value)) OnPropertyChanged(nameof(PagesText)); }
     }
 
-    public string PagesText => !IsPdf ? "n/a" : Pages?.ToString(CultureInfo.CurrentCulture) ?? "?";
+    /// <summary>Password-protected, and the password hasn't been entered yet.</summary>
+    public bool IsLocked
+    {
+        get => _isLocked;
+        set { if (SetProperty(ref _isLocked, value)) OnPropertyChanged(nameof(PagesText)); }
+    }
+
+    public string PagesText => !IsPdf ? "n/a" : IsLocked ? "locked" : Pages?.ToString(CultureInfo.CurrentCulture) ?? "?";
 
     private static string FormatSize(long bytes)
     {
@@ -95,6 +104,9 @@ public sealed class DocumentsViewModel : ObservableObject
     public Action<string>? ShowMessage { get; set; }
     public Func<string[]?>? PickFiles { get; set; }
     public Func<string?>? PickFolder { get; set; }
+
+    /// <summary>Asks for a PDF's password: (file name, last try was wrong) -> password, or null if cancelled.</summary>
+    public Func<string, bool, string?>? AskPassword { get; set; }
 
     // ------------------------------------------------------------------
     // List
@@ -220,11 +232,17 @@ public sealed class DocumentsViewModel : ObservableObject
         try
         {
             // Page counts can take a moment for big files, so do them off the UI thread.
-            var counts = await Task.Run(() => added.Select(i => i.IsPdf ? TryCountPages(i.FilePath) : null).ToList());
-            for (int i = 0; i < added.Count; i++) added[i].Pages = counts[i];
+            var counts = await Task.Run(() => added.Select(i => i.IsPdf ? TryCountPages(i.FilePath) : (Pages: (int?)null, Locked: false)).ToList());
+            for (int i = 0; i < added.Count; i++)
+            {
+                added[i].Pages = counts[i].Pages;
+                added[i].IsLocked = counts[i].Locked;
+            }
 
             var totalPages = Items.Sum(i => i.Pages ?? 0);
-            Status = $"{Items.Count} file(s), {totalPages} pages. Pick a tool on the right.";
+            var lockedCount = Items.Count(i => i.IsLocked);
+            Status = $"{Items.Count} file(s), {totalPages} pages. Pick a tool on the right."
+                + (lockedCount > 0 ? $" {lockedCount} file(s) are password-protected: you'll be asked for the password when you use a tool." : "");
         }
         finally
         {
@@ -232,10 +250,11 @@ public sealed class DocumentsViewModel : ObservableObject
         }
     }
 
-    private static int? TryCountPages(string path)
+    private static (int? Pages, bool Locked) TryCountPages(string path)
     {
-        try { return PdfService.GetPageCount(path); }
-        catch (Exception) { return null; }     // shown as "?" in the list; the tools will explain why when they run
+        try { return (PdfService.GetPageCount(path), false); }
+        catch (PdfPasswordException) { return (null, true); }     // shown as "locked"; asked for when a tool runs
+        catch (Exception) { return (null, false); }               // shown as "?"; the tools will explain why when they run
     }
 
     private static IEnumerable<string> ExpandPaths(IEnumerable<string> paths)
@@ -256,7 +275,9 @@ public sealed class DocumentsViewModel : ObservableObject
 
     private void RemoveSelected()
     {
-        if (Selected != null) Items.Remove(Selected);
+        if (Selected == null) return;
+        PdfService.ForgetPassword(Selected.FilePath);
+        Items.Remove(Selected);
     }
 
     private void Move(int direction)
@@ -317,7 +338,7 @@ public sealed class DocumentsViewModel : ObservableObject
         if (name.Length == 0) name = "Merged.pdf";
         if (!name.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)) name += ".pdf";
 
-        await RunAsync("Merging", folder =>
+        await RunAsync("Merging", pdfs, folder =>
         {
             var target = PdfService.UniquePath(folder, name);
             var pages = PdfService.Merge(pdfs, target);
@@ -342,7 +363,7 @@ public sealed class DocumentsViewModel : ObservableObject
             return;
         }
 
-        await RunAsync("Splitting", folder =>
+        await RunAsync("Splitting", new[] { doc.FilePath }, folder =>
         {
             int pageCount = PdfService.GetPageCount(doc.FilePath);
 
@@ -375,7 +396,7 @@ public sealed class DocumentsViewModel : ObservableObject
             return;
         }
 
-        await RunAsync("Stamping Bates numbers", folder =>
+        await RunAsync("Stamping Bates numbers", pdfs, folder =>
         {
             var (outputs, next) = PdfService.StampBates(pdfs, folder, format, start);
             return $"Stamped {outputs.Count} file(s): {format.Label(start)} to {format.Label(next - 1)}.";
@@ -394,7 +415,7 @@ public sealed class DocumentsViewModel : ObservableObject
             return;
         }
 
-        await RunAsync("Adding watermark", folder =>
+        await RunAsync("Adding watermark", pdfs, folder =>
         {
             var outputs = PdfService.Watermark(pdfs, folder, text);
             return $"Watermarked {outputs.Count} file(s) with \"{text}\".";
@@ -411,7 +432,7 @@ public sealed class DocumentsViewModel : ObservableObject
 
         var plan = RenamePlanner.Plan(Items.Select(i => i.FilePath).ToList(), RenamePattern, RenameStart, DateTime.Today);
 
-        await RunAsync("Copying with new names", folder =>
+        await RunAsync("Copying with new names", Array.Empty<string>(), folder =>
         {
             Directory.CreateDirectory(folder);
             foreach (var item in plan)
@@ -420,8 +441,43 @@ public sealed class DocumentsViewModel : ObservableObject
         });
     }
 
+    /// <summary>
+    /// Asks for the password of every locked file the tool is about to use. Returns false if the person cancels.
+    /// Passwords are remembered in memory for this session, so the same file isn't asked about twice.
+    /// </summary>
+    private async Task<bool> UnlockAsync(IReadOnlyCollection<string> inputs)
+    {
+        var locked = Items.Where(i => i.IsLocked && inputs.Contains(i.FilePath, StringComparer.OrdinalIgnoreCase)).ToList();
+        foreach (var item in locked)
+        {
+            bool wasWrong = false;
+            while (true)
+            {
+                try
+                {
+                    var pages = await Task.Run(() => PdfService.GetPageCount(item.FilePath));
+                    item.Pages = pages;
+                    item.IsLocked = false;
+                    break;
+                }
+                catch (PdfPasswordException ex)
+                {
+                    var entered = AskPassword?.Invoke(item.Name, wasWrong || ex.WrongPassword);
+                    if (entered == null) return false;
+                    PdfService.RememberPassword(item.FilePath, entered);
+                    wasWrong = true;
+                }
+                catch (Exception)
+                {
+                    break;      // some other problem: the tool itself will explain it
+                }
+            }
+        }
+        return true;
+    }
+
     /// <summary>Shared wrapper: busy flag, output folder, error reporting.</summary>
-    private async Task RunAsync(string label, Func<string, string> work)
+    private async Task RunAsync(string label, IReadOnlyCollection<string> inputs, Func<string, string> work)
     {
         if (IsBusy) return;
 
@@ -429,6 +485,13 @@ public sealed class DocumentsViewModel : ObservableObject
         Status = label + "…";
         try
         {
+            // Ask for passwords up front so a locked file in the middle of a batch can't leave half the results written.
+            if (!await UnlockAsync(inputs))
+            {
+                Status = "Cancelled. Nothing was changed.";
+                return;
+            }
+
             var folder = ResolveOutputFolder();
             var summary = await Task.Run(() => work(folder));
             LastOutputFolder = folder;

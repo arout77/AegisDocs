@@ -21,9 +21,11 @@ public partial class RedactionView : UserControl
         {
             ShowMessage = text => Dialogs.Info(this, text),
 
+            AskPassword = (fileName, wasWrong) => Dialogs.AskPassword(this, fileName, wasWrong),
+
             PickFile = () =>
             {
-                var dialog = new OpenFileDialog { Title = "Choose a PDF to redact", Filter = "PDF files|*.pdf" };
+                var dialog = new OpenFileDialog { Title = "Choose a file to redact", Filter = InputFile.DialogFilter };
                 return dialog.ShowDialog(Window.GetWindow(this)) == true ? dialog.FileName : null;
             },
 
@@ -42,7 +44,7 @@ public partial class RedactionView : UserControl
         DataContext = _vm;
     }
 
-    // ---------------- drag a PDF onto the tab ----------------
+    // ---------------- drag a file onto the tab ----------------
     private void View_PreviewDragOver(object sender, DragEventArgs e)
     {
         if (e.Data.GetDataPresent(DataFormats.FileDrop))
@@ -58,16 +60,16 @@ public partial class RedactionView : UserControl
         e.Handled = true;
 
         if (e.Data.GetData(DataFormats.FileDrop) is not string[] paths) return;
-        var pdf = paths.FirstOrDefault(p => p.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase));
-        if (pdf == null)
+        var supported = paths.FirstOrDefault(p => InputFile.Classify(p) != InputKind.Unsupported);
+        if (supported == null)
         {
-            Dialogs.Info(this, "Drop a PDF file here.");
+            Dialogs.Info(this, $"Drop {InputFile.SupportedText} here.");
             return;
         }
 
         try
         {
-            await _vm.OpenAsync(pdf);
+            await _vm.OpenAsync(supported);
         }
         catch (Exception ex)
         {

@@ -9,8 +9,8 @@ using ReceiptCapture.Services;
 namespace ReceiptCapture.ViewModels;
 
 /// <summary>
-/// The Redact tab: open a PDF, review what was found (and add boxes by hand), then save a
-/// copy in which the approved areas are blacked out for good.
+/// The Redact tab: open a PDF, Word document or picture, review what was found (and add boxes by
+/// hand), then save a PDF copy in which the approved areas are blacked out for good.
 /// </summary>
 public sealed class RedactionViewModel : ObservableObject
 {
@@ -22,9 +22,11 @@ public sealed class RedactionViewModel : ObservableObject
     private string? _filePath;
     private int _currentPage;
     private bool _isBusy;
-    private string _status = "Open a PDF to find sensitive information in it. Your original is never changed.";
+    private string _status = "Open a PDF, Word document or picture to find sensitive information in it. Your original is never changed.";
     private string _summary = "";
     private RedactionRegion? _selectedRegion;
+    private bool _makeSearchable = true;
+    private bool _sourceWasProtected;
 
     private bool _findSsn = true;
     private bool _findPhone = true;
@@ -71,6 +73,12 @@ public sealed class RedactionViewModel : ObservableObject
     public Func<string?>? PickFile { get; set; }
     public Func<string, string?>? PickSavePath { get; set; }
 
+    /// <summary>
+    /// Asks for a PDF's password. Receives the file name and whether the previous try was wrong;
+    /// returns the password, or null if the person cancelled.
+    /// </summary>
+    public Func<string, bool, string?>? AskPassword { get; set; }
+
     // ------------------------------------------------------------------
     // What the view shows
     // ------------------------------------------------------------------
@@ -84,6 +92,16 @@ public sealed class RedactionViewModel : ObservableObject
     public double PageWidth => HasDocument ? _pages[_currentPage].PixelWidth : 1;
     public double PageHeight => HasDocument ? _pages[_currentPage].PixelHeight : 1;
     public string PageLabel => HasDocument ? $"Page {_currentPage + 1} of {_pages.Count}" : "";
+
+    /// <summary>
+    /// Keep the saved copy searchable: the words that were NOT covered by a box are added back as an
+    /// invisible text layer. Turn it off for a copy that is pure pictures with no text at all.
+    /// </summary>
+    public bool MakeSearchable
+    {
+        get => _makeSearchable;
+        set => SetProperty(ref _makeSearchable, value);
+    }
 
     public bool IsBusy
     {
@@ -158,9 +176,9 @@ public sealed class RedactionViewModel : ObservableObject
     public async Task OpenAsync(string path)
     {
         if (IsBusy) return;
-        if (!path.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+        if (InputFile.Classify(path) == InputKind.Unsupported)
         {
-            ShowMessage?.Invoke("Choose a PDF file.");
+            ShowMessage?.Invoke($"Choose {InputFile.SupportedText}.");
             return;
         }
 
@@ -169,10 +187,33 @@ public sealed class RedactionViewModel : ObservableObject
         try
         {
             var progress = new Progress<string>(text => Status = text);
-            var pages = await _service.ScanAsync(path, progress, MaxPages);
+
+            // A password-protected PDF: ask, and ask again if it was wrong, until it opens or the person gives up.
+            string? password = null;
+            List<ScannedPage> pages;
+            while (true)
+            {
+                try
+                {
+                    pages = await _service.ScanAsync(path, progress, MaxPages, password);
+                    break;
+                }
+                catch (PdfPasswordException ex)
+                {
+                    var entered = AskPassword?.Invoke(Path.GetFileName(path), ex.WrongPassword);
+                    if (entered == null)
+                    {
+                        Status = "Cancelled. That file needs its password to be opened.";
+                        return;
+                    }
+                    password = entered;
+                    Status = "Trying that password…";
+                }
+            }
 
             _pages = pages;
             _filePath = path;
+            _sourceWasProtected = password != null;
             _currentPage = 0;
             _fitToWindow = true;
 
@@ -406,6 +447,7 @@ public sealed class RedactionViewModel : ObservableObject
         try
         {
             var images = new List<PdfPageImage>();
+            var layerTexts = new List<string>();     // what the invisible text layer says, page by page
             for (int i = 0; i < _pages.Count; i++)
             {
                 Status = $"Blacking out page {i + 1} of {_pages.Count}…";
@@ -413,8 +455,14 @@ public sealed class RedactionViewModel : ObservableObject
 
                 var page = _pages[i];
                 int pageIndex = i;
-                var jpeg = _service.BurnToJpeg(page, approved.Where(r => r.Page == pageIndex));
-                images.Add(new PdfPageImage(jpeg, page.PixelWidth, page.PixelHeight, page.WidthPoints, page.HeightPoints));
+                var onThisPage = approved.Where(r => r.Page == pageIndex).ToList();
+                var jpeg = _service.BurnToJpeg(page, onThisPage);
+
+                // Searchable copy: the words left uncovered go back in as invisible text.
+                // Any word that touches a box is left out, so redacted text can't hide in there.
+                var layer = MakeSearchable ? OcrTextLayer.Build(page, onThisPage) : null;
+                layerTexts.Add(layer == null ? "" : OcrTextLayer.PlainText(layer));
+                images.Add(new PdfPageImage(jpeg, page.PixelWidth, page.PixelHeight, page.WidthPoints, page.HeightPoints, 3, layer));
             }
 
             Status = "Saving…";
@@ -434,10 +482,19 @@ public sealed class RedactionViewModel : ObservableObject
                 foreach (var leak in RedactionVerifier.FindLeaks(pageTexts[i], redactedTexts))
                     leaks.Add($"page {i + 1}: {leak}");
 
+            // ...and the hidden text layer, which the picture check above can't see.
+            for (int i = 0; i < layerTexts.Count; i++)
+                foreach (var leak in RedactionVerifier.FindLeaks(layerTexts[i], redactedTexts))
+                    leaks.Add($"page {i + 1} (hidden text): {leak}");
+
             var manualCount = approved.Count(r => r.IsManual);
             var manualNote = manualCount > 0
                 ? $"\n\nThe {manualCount} hand-drawn box(es) can't be checked automatically, so look over those pages yourself."
                 : "";
+            if (_sourceWasProtected)
+                manualNote += "\n\nThe original was password-protected, but this redacted copy is not. Protect it again before sending it if you need to.";
+            if (MakeSearchable)
+                manualNote += "\n\nThe copy is searchable: the text that was not covered can be searched and copied.";
 
             if (leaks.Count == 0)
             {

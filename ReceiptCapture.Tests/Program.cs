@@ -445,5 +445,127 @@ Check("HasTranscript persists", transcriptStore.LoadAll()[0].HasTranscript, true
 Check("NoTranscript mirrors it", transcriptStore.LoadAll()[0].NoTranscript, false);
 Directory.Delete(transcriptRoot, recursive: true);
 
+// ---------- Password-protected PDFs: spotting them ----------
+bool Encrypted(byte[] bytes) => PdfEncryptionProbe.IsEncrypted(new MemoryStream(bytes));
+byte[] Ascii(string text) => System.Text.Encoding.ASCII.GetBytes(text);
+
+Check("probe: trailer with /Encrypt reference", Encrypted(Ascii("trailer\n<< /Size 9 /Root 1 0 R /Encrypt 8 0 R /ID [<aa><bb>] >>")), true);
+Check("probe: inline /Encrypt dictionary", Encrypted(Ascii("<< /Root 1 0 R /Encrypt<< /Filter /Standard /V 2 >> >>")), true);
+Check("probe: /EncryptMetadata alone is not enough", Encrypted(Ascii("<< /EncryptMetadata false >>")), false);
+Check("probe: plain PDF", Encrypted(Ascii("%PDF-1.4\ntrailer\n<< /Size 3 /Root 1 0 R >>\n%%EOF")), false);
+{
+    // The token sits across the boundary between two 1 MB reads.
+    var filler = new byte[(1 << 20) - 3];
+    Array.Fill(filler, (byte)' ');
+    var tail = Ascii("/Encrypt 7 0 R");
+    var all = new byte[filler.Length + tail.Length];
+    filler.CopyTo(all, 0);
+    tail.CopyTo(all, filler.Length);
+    Check("probe: token split across chunks", Encrypted(all), true);
+}
+{
+    var plain = new MemoryStream();
+    ImagePdfWriter.Write(plain, new[] { new PdfPageImage(jpeg, 24, 32, 612, 792) });
+    Check("probe: our own redacted PDFs are not encrypted", Encrypted(plain.ToArray()), false);
+}
+{
+    var ex = new PdfPasswordException(Path.Combine("cases", "Smith.pdf"), wrongPassword: false);
+    Check("password exception names the file", ex.Message, "Smith.pdf is password-protected.");
+    Check("password exception, wrong password", new PdfPasswordException("x.pdf", true).WrongPassword, true);
+}
+
+// ---------- Redact tab inputs ----------
+Check("input: pdf", InputFile.Classify(@"C:\a\Contract.PDF"), InputKind.Pdf);
+Check("input: docx", InputFile.Classify("letter.docx"), InputKind.Word);
+Check("input: legacy doc", InputFile.Classify("letter.doc"), InputKind.Word);
+Check("input: jpeg", InputFile.Classify("scan.JPG"), InputKind.Image);
+Check("input: tiff", InputFile.Classify("scan.tiff"), InputKind.Image);
+Check("input: spreadsheet is not supported", InputFile.Classify("sheet.xlsx"), InputKind.Unsupported);
+Check("input: no extension", InputFile.Classify("README"), InputKind.Unsupported);
+{
+    var probeDir = Path.Combine(Path.GetTempPath(), "aegis-test-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(probeDir);
+    var zipLike = Path.Combine(probeDir, "ok.docx");
+    File.WriteAllBytes(zipLike, new byte[] { 0x50, 0x4B, 0x03, 0x04, 0, 0 });
+    var lockedDocx = Path.Combine(probeDir, "locked.docx");
+    File.WriteAllBytes(lockedDocx, new byte[] { 0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1 });
+    var oldDoc = Path.Combine(probeDir, "old.doc");
+    File.WriteAllBytes(oldDoc, new byte[] { 0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1 });
+    Check("docx: normal file is fine", InputFile.IsEncryptedDocx(zipLike), false);
+    Check("docx: password-protected file is spotted", InputFile.IsEncryptedDocx(lockedDocx), true);
+    Check("docx: .doc files share that header, so only .docx is judged", InputFile.IsEncryptedDocx(oldDoc), false);
+    Directory.Delete(probeDir, recursive: true);
+}
+
+// ---------- Searchable redacted PDFs: the invisible text layer ----------
+{
+    // A 1000 x 2000 px page shown at 500 x 1000 pt, so every pixel is half a point.
+    var layerWords = new List<WordBox>
+    {
+        new("Patient:", 100, 100, 160, 40, 0),
+        new("123-45-6789", 300, 100, 300, 40, 0),
+        new("Diagnosis", 100, 200, 200, 40, 1),
+        new("(see)", 320, 200, 100, 40, 1),
+    };
+    var page = new ScannedPage(Array.Empty<byte>(), 1000, 2000, 500, 1000, layerWords);
+    var ssnBox = new RedactionRegion(0, SensitiveKind.Ssn, "123-45-6789", 296, 96, 308, 48);
+
+    var layer = OcrTextLayer.Build(page, new[] { ssnBox });
+    Check("layer: redacted word is left out", layer.Any(w => w.Text.Contains("6789")), false);
+    Check("layer: other layerWords stay", layer.Count, 3);
+    Check("layer: x scaled to points", layer[0].Left, 50.0);
+    Check("layer: y scaled to points", layer[0].Top, 50.0);
+    Check("layer: width scaled to points", layer[0].Width, 80.0);
+
+    var nearMiss = new RedactionRegion(0, null, "", 255, 90, 50, 60);   // clips the end of "Patient:" and the start of the SSN
+    var clipped = OcrTextLayer.Build(page, new[] { nearMiss });
+    Check("layer: a word merely touched by a box is dropped too", clipped.Any(w => w.Text == "Patient:"), false);
+
+    Check("layer: no boxes keeps every word", OcrTextLayer.Build(page, Array.Empty<RedactionRegion>()).Count, 4);
+    Check("layer text passes the leak check", RedactionVerifier.FindLeaks(OcrTextLayer.PlainText(layer), new[] { "123-45-6789" }).Count, 0);
+
+    var searchable = new MemoryStream();
+    ImagePdfWriter.Write(searchable, new[] { new PdfPageImage(jpeg, 24, 32, 500, 1000, 3, layer) });
+    var layerPdfText = System.Text.Encoding.Latin1.GetString(searchable.ToArray());
+    Check("writer: font is included when there is text", layerPdfText.Contains("/BaseFont /Courier"), true);
+    Check("writer: layerWords are written", layerPdfText.Contains("(Patient:) Tj"), true);
+    Check("writer: parentheses are escaped", layerPdfText.Contains(@"(\(see\)) Tj"), true);
+    Check("writer: text is invisible (render mode 3)", layerPdfText.Contains("BT 3 Tr"), true);
+    Check("writer: redacted text is not in the file", layerPdfText.Contains("123-45-6789") || layerPdfText.Contains("(123"), false);
+    // "Patient:" top = 50 pt, height 20 pt: baseline = 1000 - (50 + 16) = 934
+    Check("writer: text is placed with PDF's bottom-left origin", layerPdfText.Contains(" 50 934 Tm ("), true);
+
+    var plainPdf = new MemoryStream();
+    ImagePdfWriter.Write(plainPdf, new[] { new PdfPageImage(jpeg, 24, 32, 500, 1000) });
+    Check("writer: no font when there is no text", System.Text.Encoding.Latin1.GetString(plainPdf.ToArray()).Contains("/Font"), false);
+
+    var accented = new List<PdfTextWord> { new("Café", 10, 10, 40, 12), new("日本", 60, 10, 20, 12) };
+    var accentedPdf = new MemoryStream();
+    ImagePdfWriter.Write(accentedPdf, new[] { new PdfPageImage(jpeg, 24, 32, 200, 200, 3, accented) });
+    var accentedText = System.Text.Encoding.Latin1.GetString(accentedPdf.ToArray());
+    Check("writer: accented letters use WinAnsi octal codes", accentedText.Contains(@"(Caf\351) Tj"), true);
+    Check("writer: letters WinAnsi can't hold become ?", accentedText.Contains("(??) Tj"), true);
+}
+
+// ---------- Pictures as pages ----------
+{
+    var (letterW, letterH) = ImagePageSizing.PageSize(1700, 2200, 200);          // a 200 dpi scan of a Letter page
+    Check("scan: width", Math.Round(letterW, 1), 612.0);
+    Check("scan: height", Math.Round(letterH, 1), 792.0);
+
+    var (photoW, photoH) = ImagePageSizing.PageSize(3000, 4000, 72);             // phone photo that claims 72 dpi
+    Check("photo: shrunk to fit a Letter-height page", Math.Round(photoH, 1), 792.0);
+    Check("photo: keeps its shape", Math.Round(photoW / photoH, 3), 0.75);
+
+    var (oddW, _) = ImagePageSizing.PageSize(1500, 1000, 0);                     // no resolution given: assume 150 dpi
+    Check("unknown dpi assumes 150", Math.Round(oddW, 1), 720.0);
+
+    var (bigW, bigH) = ImagePageSizing.PixelSize(4000, 3000, 2400);
+    Check("big picture read at the OCR limit", bigW, 2400);
+    Check("big picture keeps its shape", bigH, 1800);
+    var (smallW, smallH) = ImagePageSizing.PixelSize(800, 600, 2400);
+    Check("small picture is not enlarged", (smallW, smallH), (800, 600));
+}
+
 Console.WriteLine($"\n{passed} passed, {failed} failed");
 return failed == 0 ? 0 : 1;

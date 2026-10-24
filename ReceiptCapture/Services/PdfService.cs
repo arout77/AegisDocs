@@ -1,8 +1,10 @@
+using System.Collections.Concurrent;
 using PdfSharp.Drawing;
 using PdfSharp.Fonts;
 using PdfSharp.Pdf;
 using PdfSharp.Pdf.IO;
 using ReceiptCapture.Core.Documents;
+using ReceiptCapture.Core.Pdf;
 
 namespace ReceiptCapture.Services;
 
@@ -17,6 +19,13 @@ public static class PdfService
         // PDFsharp needs to be told where fonts live before it can draw any text.
         GlobalFontSettings.FontResolver = new WindowsFontResolver();
     }
+
+    // Passwords the person typed this session, by file. Held in memory only, never written anywhere.
+    private static readonly ConcurrentDictionary<string, string> Passwords = new(StringComparer.OrdinalIgnoreCase);
+
+    public static void RememberPassword(string path, string password) => Passwords[Path.GetFullPath(path)] = password;
+
+    public static void ForgetPassword(string path) => Passwords.TryRemove(Path.GetFullPath(path), out _);
 
     public static int GetPageCount(string path)
     {
@@ -86,7 +95,8 @@ public static class PdfService
 
         foreach (var path in inputs)
         {
-            using var doc = OpenPdf(path, PdfDocumentOpenMode.Modify);
+            using var stampable = OpenForStamping(path);
+            var doc = stampable.Document;
             foreach (PdfPage page in doc.Pages)
             {
                 using var gfx = XGraphics.FromPdfPage(page, XGraphicsPdfPageOptions.Append);
@@ -113,7 +123,8 @@ public static class PdfService
 
         foreach (var path in inputs)
         {
-            using var doc = OpenPdf(path, PdfDocumentOpenMode.Modify);
+            using var stampable = OpenForStamping(path);
+            var doc = stampable.Document;
             foreach (PdfPage page in doc.Pages)
             {
                 using var gfx = XGraphics.FromPdfPage(page, XGraphicsPdfPageOptions.Append);
@@ -149,15 +160,59 @@ public static class PdfService
 
     private static PdfDocument OpenPdf(string path, PdfDocumentOpenMode mode)
     {
+        Passwords.TryGetValue(Path.GetFullPath(path), out var password);
+
+        PdfDocument? document;
         try
         {
-            return PdfReader.Open(path, mode);
+            // PDFsharp calls the provider only when the file is protected and the password (if any) didn't
+            // work. Setting Abort makes Open hand back null instead of throwing, which is how we can tell
+            // "needs a password" from "damaged".
+            document = PdfReader.Open(path, password, mode, args => args.Abort = true);
         }
         catch (Exception ex)
         {
             // Name the file so a failure in a batch of 200 is easy to track down.
             throw new InvalidOperationException(
-                $"{Path.GetFileName(path)}: couldn't open it ({ex.Message}). Password-protected or damaged PDFs aren't supported yet.", ex);
+                $"{Path.GetFileName(path)}: couldn't open it ({ex.Message}). The file may be damaged.", ex);
         }
+
+        if (document == null) throw new PdfPasswordException(path, wrongPassword: password != null);
+        return document;
+    }
+
+    /// <summary>A document ready to be drawn on and saved, plus whatever must stay open until it is saved.</summary>
+    private sealed class Stampable : IDisposable
+    {
+        private readonly PdfDocument? _source;
+
+        public Stampable(PdfDocument document, PdfDocument? source)
+        {
+            Document = document;
+            _source = source;
+        }
+
+        public PdfDocument Document { get; }
+
+        public void Dispose()
+        {
+            Document.Dispose();
+            _source?.Dispose();
+        }
+    }
+
+    private static Stampable OpenForStamping(string path)
+    {
+        if (!PdfEncryptionProbe.IsEncrypted(path))
+            return new Stampable(OpenPdf(path, PdfDocumentOpenMode.Modify), null);
+
+        // PDFsharp edits a protected file in place only with its OWNER password. Copying the pages into a
+        // fresh document works with the ordinary password (or none, for files that are merely restricted)
+        // and writes an unprotected result.
+        var source = OpenPdf(path, PdfDocumentOpenMode.Import);
+        var copy = new PdfDocument();
+        foreach (PdfPage page in source.Pages)
+            copy.AddPage(page);
+        return new Stampable(copy, source);
     }
 }

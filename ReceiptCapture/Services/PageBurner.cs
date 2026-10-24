@@ -23,6 +23,8 @@ public static class PageBurner
         var visual = new DrawingVisual();
         using (var context = visual.RenderOpen())
         {
+            // White underneath, so a picture with transparent areas (a screenshot, say) doesn't turn black.
+            context.DrawRectangle(Brushes.White, null, new Rect(0, 0, page.PixelWidth, page.PixelHeight));
             context.DrawImage(image, new Rect(0, 0, page.PixelWidth, page.PixelHeight));
             foreach (var region in regions)
                 context.DrawRectangle(Brushes.Black, null, new Rect(region.X, region.Y, region.Width, region.Height));

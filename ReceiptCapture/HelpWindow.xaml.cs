@@ -35,7 +35,8 @@ public partial class HelpWindow : Window
         {
             ("Building the list",
              "Click Add files…, or drop PDFs (or a whole folder of them) onto the tab. Use ↑ and ↓ to put them in the order " +
-             "you want, Remove to take out the selected file, and Clear to start over."),
+             "you want, Remove to take out the selected file, and Clear to start over. A password-protected PDF shows \"locked\" " +
+             "in the Pages column and you're asked for its password when you use a tool; results made from it are not password-protected."),
             ("Choosing a tool",
              "The panel on the right has one tab per tool. Set it up, then press its button."),
             ("Merge",
@@ -59,8 +60,14 @@ public partial class HelpWindow : Window
         new("Redact", new[]
         {
             ("What it does",
-             "Blacks out private information in a PDF, such as Social Security numbers, phone numbers, and account numbers. " +
-             "It works on scanned and digital PDFs alike. Click Open PDF… or drop a PDF on the tab to begin."),
+             "Blacks out private information, such as Social Security numbers, phone numbers, and account numbers. " +
+             "It works on scanned and digital PDFs alike, and also on Word documents and pictures (JPG, PNG, TIFF). " +
+             "Click Open file… or drop a file on the tab to begin. The redacted copy is always saved as a PDF."),
+            ("Passwords, Word files and pictures",
+             "A password-protected PDF asks for its password when you open it; the password is used only to read the file and is never saved. " +
+             "Word documents (.docx, .doc, .rtf) are first turned into a PDF on this PC using Microsoft Word, or LibreOffice if Word isn't installed; " +
+             "remove a Word file's password first. A picture becomes one page (a multi-page TIFF becomes several). " +
+             "The redacted copy is not password-protected, so protect it again before sending it if you need to."),
             ("Find automatically",
              "Tick the kinds of information you want found. The program marks every match on the page with a box. " +
              "Account, routing, license and passport numbers are found by the label printed next to them. " +
@@ -79,8 +86,10 @@ public partial class HelpWindow : Window
              "Previous and Next change page. Scroll bars appear when the page is larger than the window."),
             ("Saving",
              "Save redacted copy… asks for a new file name; your original is never overwritten. Redacted pages are saved as " +
-             "pictures, so the hidden text is truly gone and can't be searched or copied. The program then re-checks the saved " +
-             "file and tells you whether anything still shows."),
+             "pictures, so whatever was under a box is truly gone. With Keep the copy searchable ticked, the words that were NOT " +
+             "covered are added back as an invisible text layer so you can search and copy them; anything touching a box is left out. " +
+             "Untick it for a copy that is pictures only. The program then re-checks the saved file, including that hidden text, " +
+             "and tells you whether anything still shows."),
             ("Always double-check",
              "Automatic finding is a helpful first pass, not a guarantee. Look through every page before you share the result."),
         }),

@@ -17,6 +17,8 @@ public partial class DocumentsView : UserControl
         {
             ShowMessage = text => Dialogs.Info(this, text),
 
+            AskPassword = (fileName, wasWrong) => Dialogs.AskPassword(this, fileName, wasWrong),
+
             PickFiles = () =>
             {
                 var dialog = new OpenFileDialog

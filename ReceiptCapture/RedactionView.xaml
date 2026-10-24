@@ -59,7 +59,7 @@
 
                 <Grid Grid.Row="0" Margin="0,0,0,10">
                     <StackPanel Orientation="Horizontal">
-                        <Button Content="Open PDF…" Style="{StaticResource PrimaryButton}"
+                        <Button Content="Open file…" Style="{StaticResource PrimaryButton}"
                                 Command="{Binding OpenCommand}"/>
                         <Button Content="Previous" Style="{StaticResource SecondaryButton}"
                                 Command="{Binding PrevPageCommand}" Margin="16,0,0,0"/>
@@ -146,11 +146,11 @@
 
                         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"
                                     Visibility="{Binding NoDocument, Converter={StaticResource BoolToVis}}">
-                            <TextBlock Text="Open or drop a PDF to begin" FontSize="18" FontWeight="SemiBold"
+                            <TextBlock Text="Open or drop a PDF, Word document or picture to begin" FontSize="18" FontWeight="SemiBold"
                                        Foreground="{DynamicResource MutedBrush}" HorizontalAlignment="Center"/>
                             <TextBlock Style="{StaticResource Hint}" HorizontalAlignment="Center" TextAlignment="Center"
                                        Margin="0,6,0,0" MaxWidth="420"
-                                       Text="Scanned or digital, it makes no difference. Pages are read on this PC; nothing is uploaded. You can also drag on the page to black out anything by hand."/>
+                                       Text="Scanned or digital, it makes no difference. Word documents need Word (or LibreOffice) installed; pictures can be JPG, PNG or TIFF. Everything is read on this PC; nothing is uploaded. You can also drag on the page to black out anything by hand."/>
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -233,10 +233,13 @@
                 </ListBox>
 
                 <StackPanel Grid.Row="2" Margin="0,12,0,0">
+                    <CheckBox Content="Keep the copy searchable" Style="{StaticResource FindCheck}"
+                              IsChecked="{Binding MakeSearchable}" Margin="0,0,0,10"
+                              ToolTip="Adds back the text that was NOT covered by a box as an invisible layer, so the saved PDF can be searched and copied from. Covered text is never included. Turn this off for a copy that is pictures only."/>
                     <Button Content="Save redacted copy…" Style="{StaticResource PrimaryButton}"
                             HorizontalAlignment="Left" Command="{Binding ApplyCommand}"/>
                     <TextBlock Style="{StaticResource Hint}" Margin="0,10,0,0"
-                               Text="On the page: click a box to include or exclude it, drag to draw your own, right-click a hand-drawn box to remove it. Redacted pages are saved as images, so the hidden text is truly gone and the file can't be searched or copied from."/>
+                               Text="On the page: click a box to include or exclude it, drag to draw your own, right-click a hand-drawn box to remove it. Redacted pages are saved as pictures, so whatever was under a box is truly gone. With &quot;Keep the copy searchable&quot; on, only the uncovered words are added back as hidden text."/>
                 </StackPanel>
             </Grid>
         </Border>

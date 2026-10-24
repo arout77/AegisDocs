@@ -3,14 +3,19 @@ using System.Text;
 
 namespace ReceiptCapture.Core.Pdf;
 
-/// <summary>One page of an image-only PDF: a JPEG drawn across a page of the given size.</summary>
+/// <summary>
+/// One page of an image-only PDF: a JPEG drawn across a page of the given size, optionally with an
+/// invisible text layer on top (so the page can be searched and selected without changing how it looks).
+/// </summary>
 public sealed record PdfPageImage(
-    byte[] Jpeg, int PixelWidth, int PixelHeight, double WidthPoints, double HeightPoints, int Components = 3);
+    byte[] Jpeg, int PixelWidth, int PixelHeight, double WidthPoints, double HeightPoints, int Components = 3,
+    IReadOnlyList<PdfTextWord>? Text = null);
 
 /// <summary>
-/// Writes a minimal PDF whose pages are nothing but full-page JPEG images.
-/// That's exactly what true redaction needs: no text layer, no fonts, no metadata, nothing
-/// from the original file, so there is nothing left to recover from underneath a black box.
+/// Writes a minimal PDF whose pages are nothing but full-page JPEG images, plus (only if asked) an
+/// invisible text layer. True redaction needs nothing from the original file: no fonts, no metadata,
+/// no original text, so there is nothing left to recover from underneath a black box. The optional
+/// text layer is built by the caller from words that are NOT covered by any box.
 /// </summary>
 public static class ImagePdfWriter
 {
@@ -28,6 +33,9 @@ public static class ImagePdfWriter
 
         using var file = new MemoryStream();
         var offsets = new List<long>();      // offsets[n - 1] = where object n starts
+
+        bool anyText = pages.Any(p => p.Text is { Count: > 0 });
+        int fontObj = 3 + 3 * pages.Count;   // only written when some page has a text layer
 
         void Text(string s) => file.Write(Encoding.ASCII.GetBytes(s));
         void Begin(int number) { offsets.Add(file.Position); Text($"{number} 0 obj\n"); }
@@ -52,15 +60,20 @@ public static class ImagePdfWriter
             int pageObj = 3 + 3 * i, contentObj = pageObj + 1, imageObj = pageObj + 2;
             string w = Num(page.WidthPoints), h = Num(page.HeightPoints);
 
+            bool pageHasText = page.Text is { Count: > 0 };
+
             Begin(pageObj);
+            var fontResource = pageHasText ? $"/Font << /F0 {fontObj} 0 R >> " : "";
             Text($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {w} {h}] " +
-                 $"/Resources << /XObject << /Im0 {imageObj} 0 R >> /ProcSet [/PDF /ImageC /ImageB] >> " +
+                 $"/Resources << /XObject << /Im0 {imageObj} 0 R >> {fontResource}/ProcSet [/PDF /Text /ImageC /ImageB] >> " +
                  $"/Contents {contentObj} 0 R >>\n");
             End();
 
-            var content = $"q {w} 0 0 {h} 0 0 cm /Im0 Do Q\n";
+            var content = BuildContent(page, w, h);
             Begin(contentObj);
-            Text($"<< /Length {content.Length} >>\nstream\n{content}endstream\n");
+            Text($"<< /Length {content.Length} >>\nstream\n");
+            file.Write(content);
+            Text("endstream\n");
             End();
 
             Begin(imageObj);
@@ -69,6 +82,15 @@ public static class ImagePdfWriter
                  $"/ColorSpace {colorSpace} /BitsPerComponent 8 /Filter /DCTDecode /Length {page.Jpeg.Length} >>\nstream\n");
             file.Write(page.Jpeg);
             Text("\nendstream\n");
+            End();
+        }
+
+        if (anyText)
+        {
+            // Courier is one of the 14 standard fonts every viewer has built in, and every character is
+            // exactly 0.6 em wide, which lets us stretch each word to precisely the width OCR measured.
+            Begin(fontObj);
+            Text("<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>\n");
             End();
         }
 
@@ -84,6 +106,47 @@ public static class ImagePdfWriter
 
         file.Position = 0;
         file.CopyTo(output);
+    }
+
+    private const double CourierAdvance = 0.6;     // width of every Courier character, in em
+
+    /// <summary>The page's drawing instructions: the picture, then the invisible words (text render mode 3).</summary>
+    private static byte[] BuildContent(PdfPageImage page, string w, string h)
+    {
+        using var content = new MemoryStream();
+        void Raw(string s) => content.Write(Encoding.ASCII.GetBytes(s));
+
+        Raw($"q {w} 0 0 {h} 0 0 cm /Im0 Do Q\n");
+
+        foreach (var word in page.Text ?? Array.Empty<PdfTextWord>())
+        {
+            var bytes = TextEncoding.GetBytes(word.Text);
+            if (bytes.Length == 0 || word.Width <= 0 || word.Height <= 0) continue;
+
+            double size = Math.Max(1, word.Height * 1.2);
+            double natural = bytes.Length * CourierAdvance * size;
+            double stretch = Math.Clamp(word.Width / natural * 100, 1, 10000);          // Tz is a percentage
+            double baseline = page.HeightPoints - (word.Top + word.Height * 0.8);        // flip to PDF's bottom-left origin
+
+            Raw($"BT 3 Tr /F0 {Num(size)} Tf {Num(stretch)} Tz 1 0 0 1 {Num(word.Left)} {Num(baseline)} Tm (");
+            foreach (var b in bytes)
+            {
+                if (b is (byte)'(' or (byte)')' or (byte)'\\') { content.WriteByte((byte)'\\'); content.WriteByte(b); }
+                else if (b < 32 || b > 126) Raw("\\" + Convert.ToString(b, 8).PadLeft(3, '0'));
+                else content.WriteByte(b);
+            }
+            Raw(") Tj ET\n");
+        }
+        return content.ToArray();
+    }
+
+    // Windows-1252 is what /WinAnsiEncoding means. Letters it can't represent become '?'.
+    private static readonly Encoding TextEncoding = CreateTextEncoding();
+
+    private static Encoding CreateTextEncoding()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        return Encoding.GetEncoding(1252, EncoderFallback.ReplacementFallback, DecoderFallback.ReplacementFallback);
     }
 
     private static string Num(double value) => value.ToString("0.####", CultureInfo.InvariantCulture);
