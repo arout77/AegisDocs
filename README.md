@@ -20,7 +20,7 @@ Protect client confidentiality, streamline document management, and automate adm
 2. Open `ReceiptCapture.sln`, set **ReceiptCapture** as the startup project, press **F5**.
 3. Drag a receipt onto the window.
 
-## Make a shareable .exe
+## Make an .exe
 Double-click `publish.bat`. It produces `publish\AegisDocs.exe`, a single file that runs on any
 Windows 10/11 PC without installing .NET.
 
