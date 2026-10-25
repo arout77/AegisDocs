@@ -1,6 +1,6 @@
 # Aegis Docs
 
-# Your All-in-One Privacy & Productivity Workspace
+### Your All-in-One Privacy & Productivity Workspace
 **Designed for law firms, medical practices, and businesses that handle sensitive data.** 
 *Best of all? Everything runs 100% locally on your computer. No cloud servers, no subscriptions, and zero risk of data leaks.*
 
@@ -40,6 +40,7 @@ Capture client consultations and internal discussions with complete privacy.
 
 ---
 **🔒 100% Private & Local:** Nothing ever leaves your PC.
+---
 
 ** A signed installer will be provided soon. If you wish to install an unsigned version, or run a portable version that requires no install, click on "Actions" in the menu above, then click on the most recent deployment in the Workflow (usually the very first one listed), and scroll to the bottom of the page. Download "AegisDocs-Setup" for the installer (you'll need this in order to receive updates), or "AegisDocs-portable" to skip install and test it out. Otherwise, follow the instructions below to run the program.
 
@@ -53,16 +54,6 @@ Capture client consultations and internal discussions with complete privacy.
 ## Make an .exe
 Double-click `publish.bat`. It produces `publish\AegisDocs.exe`, a single file that runs on any
 Windows 10/11 PC without installing .NET.
-
-## Where your data lives
-`%LocalAppData%\ReceiptCapture\`  (receipts.json, a `receipts` folder with copies of the originals, error.log)
-
-## Layout
-| Project | What's in it |
-|---|---|
-| `ReceiptCapture.Core` | Plain C#, no UI: `Receipt` model, `ReceiptParser` (OCR text -> fields), JSON storage, CSV export |
-| `ReceiptCapture` | The WPF app. `MainWindow` hosts a tab per tool: `ComplianceView` + `ComplianceViewModel` (reuses the Redact tab's offline reader), `DocumentsView` + `DocumentsViewModel` + `PdfService` (PDFsharp), and `ReceiptsView` + `MainViewModel` + `OcrService` (Windows OCR) |
-| `ReceiptCapture.Tests` | Dependency-free tests: `dotnet run --project ReceiptCapture.Tests` |
 
 
 Third-party licences are listed in `THIRD-PARTY-NOTICES.md`.
