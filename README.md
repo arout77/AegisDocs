@@ -1,8 +1,49 @@
 # Aegis Docs
 
-Windows desktop app with five tabs. **Redact**: finds SSNs, phone numbers, emails, card numbers, dates of birth, street addresses, EINs, bank account and routing numbers, driver's license and passport numbers, plus any words you list (read from the page by OCR); zoom with the on-page controls, Ctrl + mouse wheel, or Ctrl +/-/0, lets you review every hit and draw your own boxes, then saves a copy where the approved areas are burned into the page image so the underlying text no longer exists (optionally adding back the *uncovered* words as an invisible text layer, so the copy stays searchable), and re-reads the saved file to verify. Opens PDFs (including password-protected ones), Word documents (via Word or LibreOffice) and pictures (JPG, PNG, TIFF…). **Compliance**: checks PDFs, Word documents and pictures, one file or a whole folder (up to 2,000 files, with subfolders) at a time, against a profile (HIPAA Safe Harbor identifiers, PCI DSS cardholder data, financial GLBA-style personal information, general personal information) plus your own words. Shows each item found with its page and line (or the hidden place it was in), severity and a partly hidden value; says plainly what the profile cannot find; also looks for hidden content (author and other properties, comments, tracked changes and deleted text, hidden text, attachments, scripts, page previews, GPS and camera data, earlier saved versions) and runs the same checks over text found there; makes clean copies (Word files and JPEG/PNG pictures are edited at the file-structure level, PDFs are rebuilt from page pictures) with a re-check and a cleanup log; and saves a report as a web page or CSV with a SHA-256 fingerprint of each file. It is worded as a first-pass check, never as certification. **Documents**: batch PDF tools for law-firm workflows (merge, split by page range or every N pages, Bates numbering, watermark, bulk rename; originals are never modified). **Receipts**: drop in receipts and invoices (PNG, JPG, PDF), it reads them with Windows' built-in
-offline OCR, pre-fills vendor / date / total / tax / category, you confirm, and it keeps a searchable list
-you can export to CSV for Excel or your accountant. **Meetings**: records the microphone and (optionally) the computer's sound, keeps notes, and makes an offline transcript with Whisper. Nothing leaves the PC.
+# Your All-in-One Privacy & Productivity Workspace
+**Designed for law firms, medical practices, and businesses that handle sensitive data.** 
+*Best of all? Everything runs 100% locally on your computer. No cloud servers, no subscriptions, and zero risk of data leaks.*
+
+---
+
+### 1. Smart Redaction
+Protect client privacy and confidential information in seconds.
+* **Instant Detection:** Automatically spots social security numbers, phone numbers, emails, financial details, dates of birth, street addresses, and custom keywords.
+* **Total Control:** Zoom in, review every match, or draw your own custom blackout boxes with ease.
+* **Permanent Protection:** Permanently burns approved redactions into the document image so sensitive text is gone for good. Optionally keeps the remaining text fully searchable.
+* **Built-in Verification:** Automatically re-reads saved files to ensure every sensitive detail has been successfully secured.
+* **Wide Compatibility:** Open and redact PDFs (even password-protected ones), Word documents, and photos (JPG, PNG, TIFF).
+
+### 2. Compliance & Deep Cleaning
+Scan your files and uncover hidden risks before sharing them.
+* **Comprehensive Scans:** Check individual files or entire folders (up to 2,000 files with subfolders) against industry privacy guidelines like medical record standards, credit card security, or financial data.
+* **Uncover Hidden Data:** Finds sneaky hidden elements like old comments, track changes, hidden text, author names, attachments, and even camera GPS data from photos.
+* **Safe, Clean Copies:** Generates scrubbed, safe copies of your files while keeping your originals untouched, complete with a detailed cleanup report and secure file fingerprints. 
+* *Note: Built as a reliable internal first-pass review tool.*
+
+### 3. Document & Case Tools
+A streamlined toolkit built for busy legal and professional workflows.
+* **Batch Processing:** Easily merge files, split by page ranges or intervals, apply custom watermarks, and bulk-rename documents.
+* **Bates Numbering:** Apply sequential Bates stamps to case files and discovery sets instantly.
+* **Zero Risk:** Your original source files are never modified—every action creates a pristine new copy.
+
+### 4. Expense & Receipt Manager
+Simplify bookkeeping without exposing financial data to the cloud.
+* **Drag & Drop Simplicity:** Drop in receipts or vendor invoices (PNG, JPG, PDF).
+* **Smart Offline Extraction:** Automatically reads the vendor, date, total, tax, and category for you to review and confirm.
+* **Easy Export:** Keep a clean, searchable list of your expenses ready to export to CSV for Excel or your accountant.
+
+### 5. Secure Meetings & Local Transcription
+Capture client consultations and internal discussions with complete privacy.
+* **Flexible Recording:** Record your microphone and (optionally) your computer's sound during meetings.
+* **Offline Transcripts:** Keep organized notes and let local AI generate accurate transcripts completely offline.
+
+---
+**🔒 100% Private & Local:** Nothing ever leaves your PC.
+
+** A signed installer will be provided soon. If you wish to install an unsigned version, or run a portable version that requires no install, click on "Actions" in the menu above, then click on the most recent deployment in the Workflow (usually the very first one listed), and scroll to the bottom of the page. Download "AegisDocs-Setup" for the installer (you'll need this in order to receive updates), or "AegisDocs-portable" to skip install and test it out. Otherwise, follow the instructions below to run the program.
+
+#### Note: Either way, Windows will issue a warning about using software downloaded from the internet. This is because the application is not yet signed and that automatically triggers the Windows protection. You can safely ignore the warning and run the program by clicking "More info" and then "Run anyway" button in the Windows alert box.
 
 ## Run it
 1. Install **Visual Studio 2022 Community** with the ".NET desktop development" workload (or the .NET 8 SDK).
@@ -23,33 +64,5 @@ Windows 10/11 PC without installing .NET.
 | `ReceiptCapture` | The WPF app. `MainWindow` hosts a tab per tool: `ComplianceView` + `ComplianceViewModel` (reuses the Redact tab's offline reader), `DocumentsView` + `DocumentsViewModel` + `PdfService` (PDFsharp), and `ReceiptsView` + `MainViewModel` + `OcrService` (Windows OCR) |
 | `ReceiptCapture.Tests` | Dependency-free tests: `dotnet run --project ReceiptCapture.Tests` |
 
-## Where to poke around
-- Redaction logic (finder, box mapping, verifier) and the image-only PDF writer: `ReceiptCapture.Core/Redaction/` and `ReceiptCapture.Core/Pdf/` (unit-tested)
-- Compliance scanner: `ReceiptCapture.Core/Compliance/` (profiles = the tunable part, scanner, value masking, folder enumeration, HTML/CSV report writer; unit-tested). Hidden content: `ReceiptCapture.Core/HiddenContent/` (`DocxInspector`/`DocxCleaner` work on the zip of XML, `PdfInspector` reads the PDF's own structure including compressed object streams with no PDF library, `ImageMetadata` + `ExifReader` strip JPEG/PNG without re-encoding, `HiddenContentCleaner` names and writes clean copies and the cleanup log). Test fixtures made by other tools (reportlab, pypdf, qpdf, Pillow) are in `ReceiptCapture.Tests/HiddenFixtures.cs`.
-- Redaction log: `ReceiptCapture.Core/Redaction/RedactionLog.cs` (kinds and counts only, never the redacted values), written by the Redact tab next to the saved copy The detectors it uses are in `SensitiveDataFinder.cs`, switched on per profile; the Redact tab leaves the new ones off. UI: `ComplianceView` + `ViewModels/ComplianceViewModel.cs`
-- Bates / page-range / rename logic: `ReceiptCapture.Core/Documents/` (unit-tested)
-- PDF operations: `ReceiptCapture/Services/PdfService.cs` (the only file that touches PDFsharp)
-- Parsing rules: `ReceiptCapture.Core/Parsing/ReceiptParser.cs` (the regexes at the top are the tunable part)
-- Storage is behind `IReceiptStore`, so SQLite can replace the JSON file by adding one class
-- Categories: `ReceiptCapture.Core/Categories.cs`
-
-## Automatic builds (GitHub Actions)
-`.github/workflows/build.yml` builds, tests, and publishes the app on every push and pull request, then wraps it in
-an installer (`installer/AegisDocs.iss`, made with Inno Setup). Two things appear under the run's **Artifacts**:
-
-- `AegisDocs-Setup`: the installer. This is the file to give to clients. Push a tag like `v0.1.0` and it is also attached to a GitHub Release.
-- `AegisDocs-portable`: the same app as a plain folder (unzip it and run `AegisDocs.exe`) for quick testing without installing.
-  Keep the folder together: the exe on its own can't make transcripts.
-
-### Meeting transcripts (offline)
-Transcripts are made on the PC by Whisper, an open-source speech-to-text model, so audio never leaves the computer.
-The model file (`ggml-small.en-q5_1.bin`, about 180 MB, English only) is downloaded by the build, checked, and placed in the
-app's `models` folder, so the installer carries it and clients download nothing extra. The speech engine files sit in `runtimes`; `tools/add-speech-engine.ps1` copies them there after publishing and stops the build if any are missing.
-To try a different model, change `ModelFileName` in `Services/TranscriptionService.cs` and the model name in `build.yml`.
-
-## Look and feel
-Light and dark themes. The **Theme** button (top right) cycles Auto (follows Windows), Light and Dark,
-and your choice is remembered. 
-Windows message boxes are drawn by Windows itself, so they stay light in dark mode.
 
 Third-party licences are listed in `THIRD-PARTY-NOTICES.md`.
