@@ -15,7 +15,8 @@ public partial class HelpWindow : Window
         new("Getting started", new[]
         {
             ("What this is",
-             "Aegis Docs has four tabs along the top: Documents (batch PDF tools), Redact (black out private information), " +
+             "Aegis Docs has five tabs along the top: Documents (batch PDF tools), Redact (black out private information), " +
+             "Compliance (check documents for sensitive information and save a report), " +
              "Receipts (capture receipts and invoices) and Meetings (record a meeting and keep notes). " +
              "Everything happens on this PC. Nothing is uploaded anywhere."),
             ("Adding files",
@@ -70,8 +71,11 @@ public partial class HelpWindow : Window
              "The redacted copy is not password-protected, so protect it again before sending it if you need to."),
             ("Find automatically",
              "Tick the kinds of information you want found. The program marks every match on the page with a box. " +
-             "Account, routing, license and passport numbers are found by the label printed next to them. " +
-             "To also catch specific words or names, type them in the box underneath, one per line."),
+             "Account, routing, license and passport numbers, and birth dates, are found by the label printed with them: " +
+             "beside the value (\"DOB: 02/04/1977\"), or above it, as in a table header over a row of cells on an ID card or a form's field name over its box. " +
+             "To also catch specific words or names, type them in the box underneath, one per line. " +
+             "Names, signatures, photographs and barcodes can't be found automatically: an ID card's barcode repeats the details printed on it, " +
+             "so draw a box over it by hand."),
             ("Review the boxes",
              "Every box found appears in the Review list on the right. Tick a box to include it or untick it to leave that " +
              "item visible. All and None change every box at once. A black box on the page will be blacked out; an outlined box " +
@@ -90,8 +94,61 @@ public partial class HelpWindow : Window
              "covered are added back as an invisible text layer so you can search and copy them; anything touching a box is left out. " +
              "Untick it for a copy that is pictures only. The program then re-checks the saved file, including that hidden text, " +
              "and tells you whether anything still shows."),
+            ("The redaction log",
+             "With Save a redaction log with the copy ticked, a log is saved next to the copy (\"… - redaction log.html\"). It records the date, who saved it, " +
+             "a fingerprint (SHA-256) of the original and of the copy, how many items of each kind were redacted and how many were found but left visible, " +
+             "a page-by-page count, and what the re-check of the saved copy found. It never contains the redacted text, so it can be filed with the copy. " +
+             "It is a record of the steps taken, not a certificate: look over the redacted copy before you share it."),
             ("Always double-check",
              "Automatic finding is a helpful first pass, not a guarantee. Look through every page before you share the result."),
+        }),
+
+        new("Compliance", new[]
+        {
+            ("What it does",
+             "Checks documents for sensitive information and tells you what it found and where, without changing the documents. " +
+             "It works on scanned and digital PDFs, Word documents and pictures, one file or a whole folder at a time. " +
+             "Use it to look over documents before they are shared or filed, then use the Redact tab to black out what you find."),
+            ("Adding files and folders",
+             "Click Add files… or Add folder…, or drop files or folders onto the tab. A folder adds the readable files inside it, including its subfolders " +
+             "unless you untick Include subfolders. Up to 2,000 files are kept in one run. " +
+             "A password-protected PDF asks for its password when it is scanned; a protected Word file has to have its password removed first. " +
+             "While a scan runs, Stop finishes the file in progress and lists the rest as not scanned."),
+            ("Choosing what to check against",
+             "Pick a profile on the right: HIPAA Safe Harbor identifiers, PCI DSS cardholder data, financial (GLBA-style) personal information, " +
+             "or general personal information. Under the picker, \"What it looks for\" lists exactly what that profile checks, and " +
+             "\"What it can't find\" lists what you still have to check yourself, such as names, photographs and details written in ordinary sentences. " +
+             "To catch specific names or words, type them in the box underneath, one per line."),
+            ("Reading the results",
+             "Press Scan files. Each file shows a result in the list. Click a file to see what was found in it. " +
+             "The Items found tab lists each item: how serious it is (High, Medium or Low for that profile), where it is (a page and line, " +
+             "or somewhere hidden such as Comments), what kind of item it is, and the value. Values are partly hidden on purpose, for example •••-••-6789. " +
+             "\"Nothing found by this scan\" does not mean a document has no sensitive information, only that this check found none. " +
+             "If a page had no readable text, the result says so: anything on that page was not checked."),
+            ("Hidden content",
+             "With Also look for hidden content ticked, each Word (.docx), PDF, JPEG and PNG file is also looked at for what it carries but doesn't show on its pages: " +
+             "author names and other properties, comments, tracked changes (including deleted text that can still be read), text formatted as hidden, " +
+             "attached and embedded files, scripts, page previews, GPS location and camera details in pictures, and earlier saved versions inside a PDF. " +
+             "The Hidden content tab lists them. Any text found there, such as a comment or a deleted sentence, is checked for sensitive information too. " +
+             "Older Word files (.doc, .rtf), password-protected PDFs and other picture types can't be looked inside, and the result says so."),
+            ("Making clean copies",
+             "After a scan, Clean copies… makes a clean copy of every file that has hidden content, in a folder you choose, keeping your folder layout. " +
+             "Your originals are never changed. Word files lose the items ticked under What a clean copy removes. Pay attention to two of them: " +
+             "accepting tracked changes removes deleted text for good, and removing hidden text deletes it; both change the document's text. " +
+             "JPEG and PNG pictures lose their metadata without any change to the picture. " +
+             "PDFs are rebuilt from pictures of their pages, which removes everything hidden in them; tick Keep rebuilt PDFs searchable to add the page text back as an invisible layer. " +
+             "Each copy is looked at again afterwards and the message tells you if anything still shows. " +
+             "A record of the run (file names, what was removed, what was still there, and a fingerprint of each original and copy) is saved as Cleanup log.csv in the same folder."),
+            ("Saving a report",
+             "Save report… makes a web page (it opens in any browser, and you can print it to PDF) or a CSV spreadsheet. " +
+             "It lists the profile, the date, each file with a fingerprint (SHA-256) of the file as it was scanned, every item found, " +
+             "the hidden content, and what the check cannot find. If you stopped the scan, it says so. Found values are partly hidden in it too. " +
+             "It still names your files, so treat it as confidential."),
+            ("Changing the profile",
+             "If you switch profiles after a scan, the earlier results are cleared because they belong to the profile they were made with. Scan again."),
+            ("A first pass, not a guarantee",
+             "This check helps you review documents. It can miss things and it can flag things that are harmless, and it does not certify " +
+             "that a document or your organization meets any law or standard. Have a person review the documents too."),
         }),
 
         new("Receipts", new[]

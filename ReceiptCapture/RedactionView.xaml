@@ -236,6 +236,9 @@
                     <CheckBox Content="Keep the copy searchable" Style="{StaticResource FindCheck}"
                               IsChecked="{Binding MakeSearchable}" Margin="0,0,0,10"
                               ToolTip="Adds back the text that was NOT covered by a box as an invisible layer, so the saved PDF can be searched and copied from. Covered text is never included. Turn this off for a copy that is pictures only."/>
+                    <CheckBox Content="Save a redaction log with the copy" Style="{StaticResource FindCheck}"
+                              IsChecked="{Binding SaveLog}" Margin="0,0,0,10"
+                              ToolTip="Saves a record next to the copy: the date and who saved it, a fingerprint of the original and of the copy, how many items of each kind were redacted or left visible, and what the re-check found. It never contains the redacted text."/>
                     <Button Content="Save redacted copy…" Style="{StaticResource PrimaryButton}"
                             HorizontalAlignment="Left" Command="{Binding ApplyCommand}"/>
                     <TextBlock Style="{StaticResource Hint}" Margin="0,10,0,0"

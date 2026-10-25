@@ -1,12 +1,15 @@
 // A tiny dependency-free test runner:  dotnet run --project ReceiptCapture.Tests
 using ReceiptCapture.Core;
+using ReceiptCapture.Core.Compliance;
 using ReceiptCapture.Core.Documents;
 using ReceiptCapture.Core.Export;
+using ReceiptCapture.Core.HiddenContent;
 using ReceiptCapture.Core.Meetings;
 using ReceiptCapture.Core.Parsing;
 using ReceiptCapture.Core.Pdf;
 using ReceiptCapture.Core.Redaction;
 using ReceiptCapture.Core.Storage;
+using ReceiptCapture.Tests;
 
 int passed = 0, failed = 0;
 var today = new DateTime(2025, 12, 31);
@@ -565,6 +568,941 @@ Check("input: no extension", InputFile.Classify("README"), InputKind.Unsupported
     Check("big picture keeps its shape", bigH, 1800);
     var (smallW, smallH) = ImagePageSizing.PixelSize(800, 600, 2400);
     Check("small picture is not enlarged", (smallW, smallH), (800, 600));
+}
+
+// ---------- 17. Compliance scanner: extra detectors ----------
+{
+    // Each helper turns on exactly one new detector so a test shows that detector alone.
+    List<(SensitiveKind Kind, string Text)> Hits(string text, FindOptions o) => Found(text, o);
+    var none = new FindOptions { Ssn = false, Phone = false, Email = false, CreditCard = false, DateOfBirth = false, Ein = false,
+        BankAccount = false, RoutingNumber = false, DriversLicense = false, Passport = false, Address = false };
+
+    Check("new detectors are off by default", Found("MRN: 12345678 fax: 555-123-4567 192.168.1.20 www.example.com", allOn).Count(f =>
+        f.Kind is SensitiveKind.Mrn or SensitiveKind.Fax or SensitiveKind.IpAddress or SensitiveKind.Url), 0);
+
+    // medical record numbers
+    var mrn = new FindOptions { Mrn = true, Ssn = false, Phone = false, Email = false, CreditCard = false, DateOfBirth = false, Ein = false,
+        BankAccount = false, RoutingNumber = false, DriversLicense = false, Passport = false, Address = false };
+    Check("mrn label", Hits("MRN: 00481516", mrn).FirstOrDefault(), (SensitiveKind.Mrn, "00481516"));
+    Check("mrn long label", Hits("Medical Record Number 4815162342", mrn)[0].Text, "4815162342");
+    Check("mrn patient id", Hits("Patient ID: A123-456", mrn)[0].Text, "A123-456");
+    Check("mrn needs a digit", Hits("MRN: pending", mrn).Count, 0);
+    Check("mrn too short ignored", Hits("MRN 12", mrn).Count, 0);
+
+    // health plan ids
+    var planOpts = new FindOptions { HealthPlanId = true, Ssn = false, Phone = false, Email = false, CreditCard = false, DateOfBirth = false, Ein = false,
+        BankAccount = false, RoutingNumber = false, DriversLicense = false, Passport = false, Address = false };
+    Check("member id", Hits("Member ID: XYZ123456789", planOpts)[0].Text, "XYZ123456789");
+    Check("policy number", Hits("Policy No. 998877665", planOpts)[0].Text, "998877665");
+    Check("subscriber id", Hits("Subscriber ID W1234567", planOpts)[0].Text, "W1234567");
+    Check("medicare MBI found without a label", Hits("Medicare 1EG4-TE5-MK73 on file", planOpts).Any(h => h.Text == "1EG4-TE5-MK73"), true);
+    Check("plain word is not an MBI", Hits("Unremarkable", planOpts).Count, 0);
+
+    // card extras
+    var cardx = new FindOptions { CardCvv = true, CardExpiry = true, CardTrackData = true, CreditCard = true, Ssn = false, Phone = false, Email = false,
+        DateOfBirth = false, Ein = false, BankAccount = false, RoutingNumber = false, DriversLicense = false, Passport = false, Address = false };
+    Check("cvv labelled", Hits("CVV: 123", cardx)[0], (SensitiveKind.CardCvv, "123"));
+    Check("cvc2 four digits", Hits("CVC2 1234", cardx)[0].Text, "1234");
+    Check("security code", Hits("Security code 987", cardx)[0].Text, "987");
+    Check("a bare 3-digit number is not a cvv", Hits("Room 123", cardx).Count, 0);
+    Check("expiry labelled", Hits("Exp: 12/27", cardx)[0], (SensitiveKind.CardExpiry, "12/27"));
+    Check("expiry 'valid thru'", Hits("valid thru 03/2028", cardx)[0].Text, "03/2028");
+    var cardLine = Hits("Visa 4111 1111 1111 1111  12/27", cardx);
+    Check("expiry right after a card number, no label", cardLine.Any(h => h.Kind == SensitiveKind.CardExpiry && h.Text == "12/27"), true);
+    Check("...and the card itself still found", cardLine.Any(h => h.Kind == SensitiveKind.CreditCard), true);
+    Check("a date far from any card is not an expiry", Hits("Filed 12/27 by the clerk", cardx).Count, 0);
+    var track2 = Hits("read ;4111111111111111=27121010000000000000? ok", cardx);
+    Check("track 2 found as one item", track2.Count, 1);
+    Check("track 2 kind", track2[0].Kind, SensitiveKind.CardTrackData);
+    var track1 = Hits("%B4111111111111111^DOE/JOHN^2712101000000000000?", cardx);
+    Check("track 1 swallows the card number", track1.Count, 1);
+    Check("track 1 kind", track1[0].Kind, SensitiveKind.CardTrackData);
+
+    // fax, urls, ips
+    var net = new FindOptions { Fax = true, Url = true, IpAddress = true, Phone = true, Ssn = false, Email = true, CreditCard = false, DateOfBirth = false,
+        Ein = false, BankAccount = false, RoutingNumber = false, DriversLicense = false, Passport = false, Address = false };
+    var fax = Hits("Tel (555) 123-4567  Fax: (555) 987-6543", net);
+    Check("fax found", fax.Any(h => h.Kind == SensitiveKind.Fax && h.Text == "(555) 987-6543"), true);
+    Check("tel stays a phone", fax.Any(h => h.Kind == SensitiveKind.Phone && h.Text == "(555) 123-4567"), true);
+    Check("fax number is not also a phone", fax.Count(h => h.Text == "(555) 987-6543"), 1);
+    Check("F: shorthand counts as fax", Hits("T: 555-111-2222  F: 555-333-4444", net).Any(h => h.Kind == SensitiveKind.Fax && h.Text == "555-333-4444"), true);
+    Check("'Staff:' is not a fax label", Hits("Staff: 555-333-4444", net).Count(h => h.Kind == SensitiveKind.Fax), 0);
+    Check("url with path", Hits("See https://portal.example.com/patients/42?x=1.", net)[0], (SensitiveKind.Url, "https://portal.example.com/patients/42?x=1"));
+    Check("www url", Hits("visit www.example.org today", net)[0].Text, "www.example.org");
+    Check("email domain is not a url", Hits("jane@www.example.org", net).Count(h => h.Kind == SensitiveKind.Url), 0);
+    Check("ipv4", Hits("from 192.168.10.25 at noon", net)[0], (SensitiveKind.IpAddress, "192.168.10.25"));
+    Check("ipv4 with out-of-range octet ignored", Hits("version 300.1.1.1", net).Count(h => h.Kind == SensitiveKind.IpAddress), 0);
+    Check("three numbers are not an ip", Hits("10.10.10", net).Count, 0);
+    Check("ipv6", Hits("addr 2001:0db8:85a3:0000:0000:8a2e:0370:7334 ok", net)[0].Kind, SensitiveKind.IpAddress);
+
+    // ages over 89
+    var age = new FindOptions { AgeOver89 = true, Ssn = false, Phone = false, Email = false, CreditCard = false, DateOfBirth = false, Ein = false,
+        BankAccount = false, RoutingNumber = false, DriversLicense = false, Passport = false, Address = false };
+    Check("95 years old", Hits("a 95 years old patient", age)[0], (SensitiveKind.AgeOver89, "95"));
+    Check("102-year-old", Hits("a 102-year-old woman", age)[0].Text, "102");
+    Check("y/o", Hits("92 y/o male", age)[0].Text, "92");
+    Check("age label", Hits("Age: 91", age)[0].Text, "91");
+    Check("aged", Hits("aged 97 at death", age)[0].Text, "97");
+    Check("89 is not over 89", Hits("89 years old", age).Count, 0);
+    Check("a company's 95 years is ignored", Hits("in business for 95 years", age).Count, 0);
+    Check("'page 95' is not an age", Hits("see page 95", age).Count, 0);
+    Check("money is not an age", Hits("$95 years old", age).Count, 0);
+
+    // every date
+    var dates = new FindOptions { AllDates = true, Ssn = false, Phone = false, Email = false, CreditCard = false, DateOfBirth = false, Ein = false,
+        BankAccount = false, RoutingNumber = false, DriversLicense = false, Passport = false, Address = false };
+    foreach (var d in new[] { "03/14/2025", "3/4/25", "14.03.2025", "2025-03-14", "March 14, 2025", "Mar 14", "14 March 2025", "14th March", "March 2025", "Sept. 3, 2024" })
+        Check("date " + d, Hits("Seen on " + d + " ok", dates).Any(h => h.Kind == SensitiveKind.Date && h.Text.Contains(d.Split(' ')[0].TrimEnd(',', '.'))), true);
+    Check("date whole text", Hits("Seen on March 14, 2025 ok", dates)[0].Text, "March 14, 2025");
+    Check("month 13 is not a date", Hits("13/13/2025", dates).Count, 0);
+    Check("phone is not a date", Hits("555-123-4567", dates).Count, 0);
+    Check("ssn is not a date", Hits("123-45-6789", dates).Count, 0);
+    Check("ip address is not a date", Hits("10.10.10.10", dates).Count, 0);
+    Check("lower-case 'may' is not a date", Hits("you may 5 times", dates).Count, 0);
+    Check("labelled dob wins over generic date", Found("DOB: 03/14/1985", new FindOptions { AllDates = true })[0].Kind, SensitiveKind.DateOfBirth);
+
+    // zip codes
+    var zip = new FindOptions { ZipCode = true, Ssn = false, Phone = false, Email = false, CreditCard = false, DateOfBirth = false, Ein = false,
+        BankAccount = false, RoutingNumber = false, DriversLicense = false, Passport = false, Address = false };
+    Check("zip after state", Hits("Springfield, IL 62704", zip)[0], (SensitiveKind.ZipCode, "62704"));
+    Check("zip+4", Hits("Austin TX 78701-1234", zip)[0].Text, "78701-1234");
+    Check("labelled zip", Hits("ZIP code: 90210", zip)[0].Text, "90210");
+    Check("bare five digits are not a zip", Hits("Invoice 62704 total", zip).Count, 0);
+    Check("zip inside a street address belongs to the address", Found("123 Main Street, Springfield, IL 62704", new FindOptions { ZipCode = true })
+        .Count(f => f.Kind == SensitiveKind.ZipCode), 0);
+}
+
+// ---------- 18. Card brands ----------
+Check("visa", CardBrand.Detect("4111111111111111"), "Visa");
+Check("mastercard 51", CardBrand.Detect("5555555555554444"), "Mastercard");
+Check("mastercard 2-series", CardBrand.Detect("2223003122003222"), "Mastercard");
+Check("amex", CardBrand.Detect("378282246310005"), "American Express");
+Check("discover", CardBrand.Detect("6011111111111117"), "Discover");
+Check("diners", CardBrand.Detect("30569309025904"), "Diners Club");
+Check("jcb", CardBrand.Detect("3530111333300000"), "JCB");
+Check("unknown brand", CardBrand.Detect("9999999999999995"), (string?)null);
+Check("too short", CardBrand.Detect("4111"), (string?)null);
+
+// ---------- 19. Masking ----------
+Check("mask ssn", MatchMasker.Mask(SensitiveKind.Ssn, "123-45-6789"), "•••-••-6789");
+Check("mask card", MatchMasker.Mask(SensitiveKind.CreditCard, "4111 1111 1111 1111"), "•••• •••• •••• 1111");
+Check("mask phone", MatchMasker.Mask(SensitiveKind.Phone, "(555) 123-4567"), "(•••) •••-4567");
+Check("mask short number hides everything", MatchMasker.Mask(SensitiveKind.Mrn, "12345"), "•••••");
+Check("mask email", MatchMasker.Mask(SensitiveKind.Email, "jane.doe@firm.com"), "j•••@firm.com");
+Check("mask date keeps only the shape", MatchMasker.Mask(SensitiveKind.Date, "03/14/1985"), "••/••/••••");
+Check("mask word date", MatchMasker.Mask(SensitiveKind.DateOfBirth, "March 14, 1985"), "••••• ••, ••••");
+Check("mask cvv", MatchMasker.Mask(SensitiveKind.CardCvv, "123"), "•••");
+Check("mask track data", MatchMasker.Mask(SensitiveKind.CardTrackData, ";4111111111111111=2712?"), "[track data hidden]");
+Check("mask address", MatchMasker.Mask(SensitiveKind.Address, "123 Main Street\nSpringfield, IL 62704"), "[address hidden]");
+Check("mask url keeps the host only", MatchMasker.Mask(SensitiveKind.Url, "https://portal.example.com/patients/42"), "https://portal.example.com/…");
+Check("mask ip", MatchMasker.Mask(SensitiveKind.IpAddress, "192.168.10.25"), "192.168.•••.•••");
+Check("mask custom term", MatchMasker.Mask(SensitiveKind.CustomTerm, "Jane Doe"), "[your term]");
+Check("mask never leaks the digits", MatchMasker.Mask(SensitiveKind.Ssn, "123-45-6789").Contains("123-45"), false);
+
+// ---------- 20. Profiles ----------
+Check("four profiles", ComplianceProfiles.All.Count, 4);
+Check("profile ids are unique", ComplianceProfiles.All.Select(p => p.Id).Distinct().Count(), 4);
+Check("lookup by id", ComplianceProfiles.ById("PCI")?.Name, "PCI DSS cardholder data");
+Check("every profile says what it can't find", ComplianceProfiles.All.All(p => p.NotChecked.Count > 0), true);
+Check("every check has a plain-language explanation", ComplianceProfiles.All.All(p => p.Checks.All(c => c.Explanation.Length > 5)), true);
+Check("no profile lists a kind twice", ComplianceProfiles.All.All(p => p.Checks.Select(c => c.Kind).Distinct().Count() == p.Checks.Count), true);
+{
+    var pci = ComplianceProfiles.Pci.BuildOptions();
+    Check("pci: card on", pci.CreditCard, true);
+    Check("pci: cvv on", pci.CardCvv, true);
+    Check("pci: ssn off", pci.Ssn, false);
+    Check("pci: phone off", pci.Phone, false);
+    Check("pci: dates off", pci.AllDates, false);
+    var hip = ComplianceProfiles.Hipaa.BuildOptions(new[] { "Jane Doe" });
+    Check("hipaa: mrn on", hip.Mrn, true);
+    Check("hipaa: all dates on", hip.AllDates, true);
+    Check("hipaa: ein off", hip.Ein, false);
+    Check("hipaa: custom terms carried", hip.CustomTerms.Count, 1);
+    Check("hipaa covers the key identifiers", new[] { SensitiveKind.Ssn, SensitiveKind.Mrn, SensitiveKind.HealthPlanId, SensitiveKind.Phone, SensitiveKind.Fax,
+        SensitiveKind.Email, SensitiveKind.Url, SensitiveKind.IpAddress, SensitiveKind.ZipCode, SensitiveKind.AgeOver89, SensitiveKind.Date }
+        .All(k => ComplianceProfiles.Hipaa.Checks.Any(c => c.Kind == k)), true);
+    Check("pci: cvv is high severity", ComplianceProfiles.Pci.SeverityOf(SensitiveKind.CardCvv), FindingSeverity.High);
+    Check("hipaa: plain dates are low severity", ComplianceProfiles.Hipaa.SeverityOf(SensitiveKind.Date), FindingSeverity.Low);
+}
+
+// ---------- 21. Scanning page text ----------
+{
+    var chart = "Patient: Jane Doe\nMRN: 00481516  DOB: 03/14/1941\nSSN 123-45-6789\nPhone (555) 123-4567  Fax: (555) 987-6543\n" +
+                "Seen 2025-03-14, a 84 y/o woman and her 96 years old mother.\nBill to 100 Main Street, Springfield, IL 62704";
+    var page2 = "Insurance Member ID: ABC12345678\nCard 4111 1111 1111 1111 exp 12/27 CVV 123\nEmail jane@example.com";
+    var result = ComplianceScanner.ScanPageTexts(@"C:\docs\chart.pdf", "abc123", new[] { chart, "", page2 }, ComplianceProfiles.Hipaa, new[] { "Jane Doe" });
+
+    var kinds1 = result.Findings.Where(f => f.Page == 1).Select(f => f.Kind).ToHashSet();
+    foreach (var k in new[] { SensitiveKind.Mrn, SensitiveKind.DateOfBirth, SensitiveKind.Ssn, SensitiveKind.Phone, SensitiveKind.Fax, SensitiveKind.Date,
+                              SensitiveKind.AgeOver89, SensitiveKind.Address, SensitiveKind.CustomTerm })
+        Check("page 1 has " + k, kinds1.Contains(k), true);
+    var kinds3 = result.Findings.Where(f => f.Page == 3).Select(f => f.Kind).ToHashSet();
+    foreach (var k in new[] { SensitiveKind.HealthPlanId, SensitiveKind.CreditCard, SensitiveKind.Email })
+        Check("page 3 has " + k, kinds3.Contains(k), true);
+    Check("hipaa profile does not look for card cvv", kinds3.Contains(SensitiveKind.CardCvv), false);
+    Check("hipaa profile does not look for card expiry", kinds3.Contains(SensitiveKind.CardExpiry), false);
+    Check("the 84 y/o is not flagged", result.Findings.Any(f => f.Kind == SensitiveKind.AgeOver89 && f.MaskedValue == "••" && f.Page == 1), true);
+    Check("only one age over 89", result.Findings.Count(f => f.Kind == SensitiveKind.AgeOver89), 1);
+    Check("page count", result.PageCount, 3);
+    Check("blank page counted", result.PagesWithoutText, 1);
+    Check("blank page noted", result.Note, "1 page had no readable text, so anything on it was not checked");
+    Check("card brand shown", result.Findings.Any(f => f.Description == "Card number (Visa)"), true);
+    Check("high severity first", result.Findings[0].Severity, FindingSeverity.High);
+    Check("severities are in order", result.Findings.Select(f => (int)f.Severity).SequenceEqual(result.Findings.Select(f => (int)f.Severity).OrderBy(x => x)), true);
+    Check("line numbers", result.Findings.First(f => f.Kind == SensitiveKind.Ssn).Line, 3);
+    Check("status never says passed", result.StatusText.Contains("pass", StringComparison.OrdinalIgnoreCase) || result.StatusText.Contains("compliant", StringComparison.OrdinalIgnoreCase), false);
+    Check("no raw values in findings", result.Findings.Any(f => f.MaskedValue.Contains("123-45-6789") || f.MaskedValue.Contains("4111 1111 1111 1111")), false);
+
+    var pciResult = ComplianceScanner.ScanPageTexts("card.pdf", null, new[] { page2 }, ComplianceProfiles.Pci);
+    var pciKinds = pciResult.Findings.Select(f => f.Kind).ToHashSet();
+    Check("pci finds card, cvv and expiry", pciKinds.SetEquals(new[] { SensitiveKind.CreditCard, SensitiveKind.CardCvv, SensitiveKind.CardExpiry }), true);
+    Check("pci does not report the email", pciKinds.Contains(SensitiveKind.Email), false);
+
+    var emptyResult = ComplianceScanner.ScanPageTexts("empty.pdf", null, new[] { "just a letter about lunch" }, ComplianceProfiles.GeneralPii);
+    Check("nothing found wording", emptyResult.StatusText, "Nothing found by this scan");
+    var allBlank = ComplianceScanner.ScanPageTexts("blank.pdf", null, new[] { "", "  " }, ComplianceProfiles.GeneralPii);
+    Check("all-blank note", allBlank.Note, "no readable text was found on any page");
+    Check("one item wording", ComplianceScanner.ScanPageTexts("x.pdf", null, new[] { "SSN 123-45-6789" }, ComplianceProfiles.GeneralPii).StatusText, "1 item to review");
+    Check("skipped wording", ComplianceScanner.Skipped("locked.pdf", "needs a password").StatusText, "Not scanned: needs a password");
+
+    // from OCR words
+    var ocr = new ScannedPage(Array.Empty<byte>(), 100, 100, 100, 100, new List<WordBox>
+    {
+        new("SSN", 0, 0, 10, 5, 0), new("123-45-6789", 12, 0, 40, 5, 0), new("Thanks", 0, 10, 20, 5, 1),
+    });
+    var fromWords = ComplianceScanner.ScanPages("ocr.png", null, new[] { ocr }, ComplianceProfiles.GeneralPii);
+    Check("scan from OCR words", fromWords.Findings.Count, 1);
+    Check("scan from OCR words kind", fromWords.Findings[0].Kind, SensitiveKind.Ssn);
+}
+
+// ---------- 22. Report writer ----------
+{
+    var doc = ComplianceScanner.ScanPageTexts("C:/clients/=cmd<script>.pdf", "deadbeef",
+        new[] { "SSN 123-45-6789\nCard 4111 1111 1111 1111" }, ComplianceProfiles.GeneralPii);
+    var skipped = ComplianceScanner.Skipped("C:/clients/locked.pdf", "needs a password");
+    var clean = ComplianceScanner.ScanPageTexts("C:/clients/fine.pdf", "cafe", new[] { "lunch on friday" }, ComplianceProfiles.GeneralPii);
+    var report = new ScanReport(ComplianceProfiles.GeneralPii, new[] { doc, skipped, clean },
+        new DateTimeOffset(2026, 10, 24, 9, 30, 0, TimeSpan.Zero), "0.1.0", 2);
+
+    Check("report totals: findings", report.TotalFindings, 2);
+    Check("report totals: scanned", report.FilesScanned, 2);
+    Check("report totals: skipped", report.FilesSkipped, 1);
+
+    var html = ScanReportWriter.ToHtml(report);
+    Check("html names the profile", html.Contains("General personal information"), true);
+    Check("html carries the disclaimer", html.Contains("not a guarantee"), true);
+    Check("html says values are hidden", html.Contains("partly hidden"), true);
+    Check("html shows masked ssn", html.Contains("•••-••-6789"), true);
+    Check("html never contains the raw ssn", html.Contains("123-45-6789"), false);
+    Check("html never contains the raw card", html.Contains("4111 1111 1111 1111"), false);
+    Check("html escapes file names", html.Contains("<script>"), false);
+    Check("html lists what it can't find", html.Contains("What this check cannot find"), true);
+    Check("html shows the file hash", html.Contains("deadbeef"), true);
+    Check("html says the skipped file was not checked", html.Contains("not</strong> checked"), true);
+    Check("html mentions the user's own words", html.Contains("2 word(s) or name(s) you added"), true);
+    Check("html avoids 'compliant' as a verdict", html.Contains("is compliant") || html.Contains("passed") || html.Contains("ensures compliance"), false);
+
+    var reportCsv = ScanReportWriter.ToCsv(report);
+    var csvLines = reportCsv.TrimEnd().Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+    Check("csv header + 2 findings + skipped + clean", csvLines.Length, 1 + 2 + 1 + 1);
+    Check("csv never contains the raw ssn", reportCsv.Contains("123-45-6789"), false);
+    Check("csv guards against formulas in file names", reportCsv.Contains("\"'=cmd"), true);
+    Check("csv quotes embedded quotes", ScanReportWriter.Cell("a\"b"), "\"a\"\"b\"");
+    Check("csv skipped row", reportCsv.Contains("Not scanned: needs a password"), true);
+}
+
+// ======================================================================
+// Slice 2: hidden content, folder scanning, clean copies, redaction log
+// ======================================================================
+byte[] MakeZip(params (string Name, string Content)[] parts)
+{
+    using var ms = new MemoryStream();
+    using (var zip = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Create, true))
+        foreach (var (name, content) in parts)
+        {
+            var e = zip.CreateEntry(name);
+            using var w = new StreamWriter(e.Open(), new System.Text.UTF8Encoding(false));
+            w.Write(content);
+        }
+    return ms.ToArray();
+}
+
+byte[] BuildDocx()
+{
+    const string W = "xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:o=\"urn:schemas-microsoft-com:office:office\" xmlns:v=\"urn:schemas-microsoft-com:vml\"";
+    const string Decl = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>";
+    const string Rt = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/";
+    return MakeZip(
+        ("[Content_Types].xml", Decl + "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">" +
+            "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/>" +
+            "<Default Extension=\"bin\" ContentType=\"application/vnd.openxmlformats-officedocument.oleObject\"/><Default Extension=\"jpeg\" ContentType=\"image/jpeg\"/>" +
+            "<Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/>" +
+            "<Override PartName=\"/word/comments.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml\"/>" +
+            "<Override PartName=\"/word/people.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.people+xml\"/>" +
+            "<Override PartName=\"/docProps/core.xml\" ContentType=\"application/vnd.openxmlformats-package.core-properties+xml\"/>" +
+            "<Override PartName=\"/docProps/app.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.extended-properties+xml\"/>" +
+            "<Override PartName=\"/docProps/custom.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.custom-properties+xml\"/>" +
+            "<Override PartName=\"/customXml/itemProps1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.customXmlProperties+xml\"/></Types>"),
+        ("_rels/.rels", Decl + "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+            $"<Relationship Id=\"rId1\" Type=\"{Rt}officeDocument\" Target=\"word/document.xml\"/>" +
+            "<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties\" Target=\"docProps/core.xml\"/>" +
+            $"<Relationship Id=\"rId3\" Type=\"{Rt}extended-properties\" Target=\"docProps/app.xml\"/>" +
+            "<Relationship Id=\"rId4\" Type=\"http://schemas.openxmlformats.org/package/2006/relationships/metadata/thumbnail\" Target=\"docProps/thumbnail.jpeg\"/>" +
+            $"<Relationship Id=\"rId5\" Type=\"{Rt}custom-properties\" Target=\"docProps/custom.xml\"/></Relationships>"),
+        ("word/_rels/document.xml.rels", Decl + "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+            $"<Relationship Id=\"rIdC\" Type=\"{Rt}comments\" Target=\"comments.xml\"/>" +
+            "<Relationship Id=\"rIdP\" Type=\"http://schemas.microsoft.com/office/2011/relationships/people\" Target=\"people.xml\"/>" +
+            $"<Relationship Id=\"rIdOle\" Type=\"{Rt}oleObject\" Target=\"embeddings/oleObject1.bin\"/>" +
+            $"<Relationship Id=\"rIdLink\" Type=\"{Rt}hyperlink\" Target=\"https://example.com/\" TargetMode=\"External\"/>" +
+            $"<Relationship Id=\"rIdX\" Type=\"{Rt}customXml\" Target=\"../customXml/item1.xml\"/></Relationships>"),
+        ("customXml/item1.xml", "<matter xmlns=\"urn:dms\"><client>Acme</client><matterNo>77-123</matterNo></matter>"),
+        ("customXml/itemProps1.xml", "<ds:datastoreItem xmlns:ds=\"http://schemas.openxmlformats.org/officeDocument/2006/customXml\" ds:itemID=\"{ABC}\"/>"),
+        ("customXml/_rels/item1.xml.rels", "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXmlProps\" Target=\"itemProps1.xml\"/></Relationships>"),
+        ("word/document.xml", Decl + $"<w:document {W}><w:body>" +
+            "<w:p><w:r><w:t xml:space=\"preserve\">Visible start. </w:t></w:r>" +
+            "<w:commentRangeStart w:id=\"0\"/><w:r><w:t>Commented.</w:t></w:r><w:commentRangeEnd w:id=\"0\"/><w:r><w:commentReference w:id=\"0\"/></w:r>" +
+            "<w:ins w:id=\"1\" w:author=\"Bob Lee\"><w:r><w:t xml:space=\"preserve\"> Added.</w:t></w:r></w:ins>" +
+            "<w:del w:id=\"2\" w:author=\"Bob Lee\"><w:r><w:delText xml:space=\"preserve\"> Deleted secret 987-65-4321.</w:delText></w:r></w:del>" +
+            "<w:r><w:rPr><w:vanish/></w:rPr><w:t>HIDDENBIT</w:t></w:r>" +
+            "<w:r><w:rPr><w:vanish w:val=\"0\"/></w:rPr><w:t xml:space=\"preserve\"> Not hidden.</w:t></w:r></w:p>" +
+            "<w:p><w:pPr><w:rPr><w:ins w:id=\"3\" w:author=\"Bob Lee\"/></w:rPr></w:pPr><w:r><w:rPr><w:b/><w:rPrChange w:id=\"4\" w:author=\"Bob Lee\"><w:rPr/></w:rPrChange></w:rPr><w:t>Second paragraph.</w:t></w:r></w:p>" +
+            "<w:tbl><w:tr><w:trPr><w:del w:id=\"5\" w:author=\"Bob Lee\"/></w:trPr><w:tc><w:p><w:r><w:t>ROWGONE</w:t></w:r></w:p></w:tc></w:tr>" +
+            "<w:tr><w:tc><w:p><w:r><w:t>ROWKEPT</w:t></w:r></w:p></w:tc></w:tr></w:tbl>" +
+            "<w:sdt><w:sdtPr><w:dataBinding w:storeItemID=\"{ABC}\" w:xpath=\"/matter/client\"/></w:sdtPr><w:sdtContent><w:p><w:r><w:t>BOUNDTEXT</w:t></w:r></w:p></w:sdtContent></w:sdt>" +
+            "<w:p><w:r><w:object><v:shape id=\"s1\"/><o:OLEObject Type=\"Embed\" ProgID=\"Package\" ShapeID=\"s1\" r:id=\"rIdOle\"/></w:object></w:r></w:p>" +
+            "</w:body></w:document>"),
+        ("word/comments.xml", Decl + $"<w:comments {W}><w:comment w:id=\"0\" w:author=\"Mary Smith\" w:initials=\"MS\"><w:p><w:r><w:t>Card 4111 1111 1111 1111</w:t></w:r></w:p></w:comment></w:comments>"),
+        ("word/people.xml", Decl + "<w15:people xmlns:w15=\"http://schemas.microsoft.com/office/word/2012/wordml\"><w15:person w15:author=\"Mary Smith\"/></w15:people>"),
+        ("word/embeddings/oleObject1.bin", "OLEOLEOLE"),
+        ("docProps/thumbnail.jpeg", "not really a jpeg"),
+        ("docProps/core.xml", Decl + "<cp:coreProperties xmlns:cp=\"http://schemas.openxmlformats.org/package/2006/metadata/core-properties\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:dcterms=\"http://purl.org/dc/terms/\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">" +
+            "<dc:title>Smith settlement</dc:title><dc:subject>Client SSN 123-45-6789</dc:subject><dc:creator>Jane Doe</dc:creator><cp:keywords>confidential</cp:keywords>" +
+            "<dc:description>internal draft</dc:description><cp:lastModifiedBy>Bob Lee</cp:lastModifiedBy><dcterms:created xsi:type=\"dcterms:W3CDTF\">2025-01-01T00:00:00Z</dcterms:created></cp:coreProperties>"),
+        ("docProps/app.xml", Decl + "<Properties xmlns=\"http://schemas.openxmlformats.org/officeDocument/2006/extended-properties\"><Application>Microsoft Office Word</Application><Company>Acme Legal LLP</Company><Manager>Pat Boss</Manager></Properties>"),
+        ("docProps/custom.xml", Decl + "<Properties xmlns=\"http://schemas.openxmlformats.org/officeDocument/2006/custom-properties\" xmlns:vt=\"http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes\"><property fmtid=\"{D5CDD505-2E9C-101B-9397-08002B2CF9AE}\" pid=\"2\" name=\"ClientId\"><vt:lpwstr>ACME-77123</vt:lpwstr></property></Properties>"));
+}
+
+byte[] ReadPart(byte[] zipBytes, string name)
+{
+    using var zip = new System.IO.Compression.ZipArchive(new MemoryStream(zipBytes), System.IO.Compression.ZipArchiveMode.Read);
+    var e = zip.GetEntry(name);
+    if (e == null) return Array.Empty<byte>();
+    using var s = e.Open(); using var ms = new MemoryStream(); s.CopyTo(ms); return ms.ToArray();
+}
+List<string> PartNames(byte[] zipBytes)
+{
+    using var zip = new System.IO.Compression.ZipArchive(new MemoryStream(zipBytes), System.IO.Compression.ZipArchiveMode.Read);
+    return zip.Entries.Select(e => e.FullName).ToList();
+}
+string PartText(byte[] zipBytes, string name) => System.Text.Encoding.UTF8.GetString(ReadPart(zipBytes, name));
+
+// ---------- 23. Names: masking ----------
+Check("mask name", MatchMasker.MaskName("Jane Doe"), "J••• D••");
+Check("mask name keeps one-letter words", MatchMasker.MaskName("J Smith"), "J S••••");
+Check("mask file name keeps the extension", MatchMasker.MaskFileName("client-list.xlsx"), "c••••••.xlsx");
+Check("mask long text is shortened", MatchMasker.MaskName(new string('a', 200)).Length <= 61, true);
+
+// ---------- 24. Word documents ----------
+{
+    var docx = BuildDocx();
+    var found = DocxInspector.Inspect(new MemoryStream(docx));
+    bool HasHid(HiddenCategory c, FindingSeverity? s = null) => found.Items.Any(i => i.Category == c && (s == null || i.Severity == s));
+
+    Check("docx: author found", found.Items.Any(i => i.What == "Author: J••• D••"), true);
+    Check("docx: last saved by found", found.Items.Any(i => i.What == "Last saved by: B•• L••"), true);
+    Check("docx: company found", found.Items.Any(i => i.What == "Company: A••• L•••• L••"), true);
+    Check("docx: custom property", found.Items.Any(i => i.What.StartsWith("1 custom propert")), true);
+    Check("docx: comment found", found.Items.Any(i => i.Category == HiddenCategory.Comments && i.What.StartsWith("1 comment by M••• S••••")), true);
+    Check("docx: tracked deletion is high severity", HasHid(HiddenCategory.TrackedChanges, FindingSeverity.High), true);
+    Check("docx: tracked insertion", found.Items.Any(i => i.What.StartsWith("2 tracked insertions")), true);
+    Check("docx: formatting change", found.Items.Any(i => i.What.StartsWith("1 tracked formatting change")), true);
+    Check("docx: hidden text counted once (vanish=0 is not hidden)", found.Items.Any(i => i.What.StartsWith("1 piece of text formatted as hidden")), true);
+    Check("docx: embedded object is high severity", HasHid(HiddenCategory.Attachments, FindingSeverity.High), true);
+    Check("docx: preview picture", HasHid(HiddenCategory.PreviewImage), true);
+    Check("docx: custom xml noticed", found.Items.Any(i => i.What.StartsWith("Custom XML data")), true);
+
+    string TextOf(string area) => string.Join("|", found.Texts.Where(t => t.Area == area).Select(t => t.Text));
+    Check("docx: deleted text is handed on for checking", TextOf("Deleted text (tracked changes)").Contains("987-65-4321"), true);
+    Check("docx: comment text is handed on", TextOf("Comments").Contains("4111 1111 1111 1111"), true);
+    Check("docx: hidden text is handed on", TextOf("Hidden text"), "HIDDENBIT");
+    Check("docx: subject is handed on", TextOf("Document properties").Contains("123-45-6789"), true);
+    Check("docx: no raw names in item text", found.Items.Any(i => i.What.Contains("Jane") || i.What.Contains("Mary") || i.What.Contains("Bob")), false);
+
+    // cleaning
+    using var cleanOut = new MemoryStream();
+    var result = DocxCleaner.Clean(new MemoryStream(docx), cleanOut, new CleanOptions());
+    var cleaned = cleanOut.ToArray();
+    var after = DocxInspector.Inspect(new MemoryStream(cleaned));
+    Check("docx clean: nothing left to find", after.Items.Count, 0);
+    Check("docx clean: summary lists what was done", result.Removed.Count >= 5, true);
+
+    var body = PartText(cleaned, "word/document.xml");
+    Check("docx clean: visible text kept", body.Contains("Visible start.") && body.Contains("Commented.") && body.Contains("Second paragraph.") && body.Contains("ROWKEPT"), true);
+    Check("docx clean: inserted text kept", body.Contains("Added."), true);
+    Check("docx clean: not-hidden run kept", body.Contains("Not hidden."), true);
+    Check("docx clean: deleted text gone", body.Contains("Deleted secret") || body.Contains("w:delText") || body.Contains("<w:del "), false);
+    Check("docx clean: deleted row gone", body.Contains("ROWGONE"), false);
+    Check("docx clean: hidden text gone", body.Contains("HIDDENBIT"), false);
+    Check("docx clean: comment marks gone", body.Contains("commentRange") || body.Contains("commentReference"), false);
+    Check("docx clean: tracked markers gone", body.Contains("<w:ins ") || body.Contains("rPrChange"), false);
+    Check("docx clean: embedded object markup gone", body.Contains("w:object") || body.Contains("rIdOle"), false);
+
+    var names = PartNames(cleaned);
+    Check("docx clean: comments part gone", names.Any(n => n.Contains("comments")), false);
+    Check("docx clean: people part gone", names.Contains("word/people.xml"), false);
+    Check("docx clean: embedding gone", names.Any(n => n.StartsWith("word/embeddings/")), false);
+    Check("docx clean: thumbnail gone", names.Any(n => n.StartsWith("docProps/thumbnail")), false);
+    Check("docx clean: custom props gone", names.Contains("docProps/custom.xml"), false);
+    Check("docx clean: custom xml gone", names.Any(n => n.StartsWith("customXml/")), false);
+    Check("docx clean: custom xml relationship gone", PartText(cleaned, "word/_rels/document.xml.rels").Contains("customXml"), false);
+    Check("docx clean: custom xml content type gone", PartText(cleaned, "[Content_Types].xml").Contains("customXml"), false);
+    Check("docx clean: bound control keeps its text", PartText(cleaned, "word/document.xml").Contains("BOUNDTEXT"), true);
+    Check("docx clean: binding to the removed data is dropped", PartText(cleaned, "word/document.xml").Contains("dataBinding"), false);
+    Check("docx clean: summary mentions custom xml", result.Removed.Any(r => r.Contains("custom XML")), true);
+    Check("docx clean: content types first", names[0], "[Content_Types].xml");
+
+    var core = PartText(cleaned, "docProps/core.xml");
+    Check("docx clean: author cleared", core.Contains("Jane Doe") || core.Contains("Bob Lee") || core.Contains("Smith settlement") || core.Contains("123-45"), false);
+    Check("docx clean: created date kept", core.Contains("2025-01-01"), true);
+    var app = PartText(cleaned, "docProps/app.xml");
+    Check("docx clean: company cleared", app.Contains("Acme") || app.Contains("Pat Boss"), false);
+    Check("docx clean: application name kept", app.Contains("Microsoft Office Word"), true);
+
+    // the package must still hang together, or Word calls the file damaged
+    var contentTypes = PartText(cleaned, "[Content_Types].xml");
+    foreach (var m in System.Text.RegularExpressions.Regex.Matches(contentTypes, "PartName=\"/([^\"]+)\"").Cast<System.Text.RegularExpressions.Match>())
+        Check("docx clean: content type points at a real part: " + m.Groups[1].Value, names.Contains(m.Groups[1].Value), true);
+    string Resolve(string folder, string target) => target.StartsWith("/") ? target[1..] : (folder.Length == 0 ? target : folder + "/" + target);
+    foreach (var (rels, folder) in new[] { ("_rels/.rels", ""), ("word/_rels/document.xml.rels", "word") })
+        foreach (var rel in System.Xml.Linq.XDocument.Parse(PartText(cleaned, rels)).Root!.Elements())
+        {
+            if ((string?)rel.Attribute("TargetMode") == "External") continue;
+            Check($"docx clean: {rels} -> {rel.Attribute("Target")!.Value} exists", names.Contains(Resolve(folder, (string)rel.Attribute("Target")!)), true);
+        }
+    Check("docx clean: external link kept", PartText(cleaned, "word/_rels/document.xml.rels").Contains("https://example.com/"), true);
+    foreach (var n in names.Where(n => n.EndsWith(".xml") || n.EndsWith(".rels")))
+        Check("docx clean: well-formed " + n, ThrowsNothing(() => System.Xml.Linq.XDocument.Parse(PartText(cleaned, n))), true);
+
+    // options: leave comments alone
+    using var partial = new MemoryStream();
+    DocxCleaner.Clean(new MemoryStream(docx), partial, new CleanOptions { Comments = false, DocumentProperties = false, Attachments = false });
+    var partialBytes = partial.ToArray();
+    Check("docx options: comments kept when asked", PartNames(partialBytes).Contains("word/comments.xml"), true);
+    Check("docx options: comment marks kept", PartText(partialBytes, "word/document.xml").Contains("commentReference"), true);
+    Check("docx options: properties kept", PartText(partialBytes, "docProps/core.xml").Contains("Jane Doe"), true);
+    Check("docx options: embedding kept", PartNames(partialBytes).Contains("word/embeddings/oleObject1.bin"), true);
+    Check("docx options: custom xml kept with properties", PartNames(partialBytes).Contains("customXml/item1.xml"), true);
+    Check("docx options: binding kept", PartText(partialBytes, "word/document.xml").Contains("dataBinding"), true);
+    Check("docx options: tracked changes still accepted", PartText(partialBytes, "word/document.xml").Contains("Deleted secret"), false);
+    var partialAfter = DocxInspector.Inspect(new MemoryStream(partialBytes));
+    Check("docx options: what was left shows up on inspection", partialAfter.Items.Any(i => i.Category == HiddenCategory.Comments), true);
+
+    // cleaning twice changes nothing more
+    using var twice = new MemoryStream();
+    DocxCleaner.Clean(new MemoryStream(cleaned), twice, new CleanOptions());
+    Check("docx clean: second pass finds nothing either", DocxInspector.Inspect(new MemoryStream(twice.ToArray())).Items.Count, 0);
+
+    // a plain document comes back with nothing to report
+    var plain = MakeZip(("[Content_Types].xml", "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"/>"),
+        ("word/document.xml", "<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body><w:p><w:r><w:t>Hello</w:t></w:r></w:p></w:body></w:document>"));
+    Check("docx: plain document has nothing hidden", DocxInspector.Inspect(new MemoryStream(plain)).Items.Count, 0);
+}
+
+bool ThrowsNothing(Action a) { try { a(); return true; } catch { return false; } }
+
+// ---------- 25. PDFs ----------
+{
+    var meta = PdfInspector.Inspect(HiddenFixtures.MetaPdf);
+    Check("pdf meta: checked", meta.WasChecked, true);
+    Check("pdf meta: author", meta.Items.Any(i => i.What == "Author: J••• D••"), true);
+    Check("pdf meta: no attachments", meta.Items.Any(i => i.Category == HiddenCategory.Attachments), false);
+    Check("pdf meta: subject text handed on", meta.Texts.Any(t => t.Text.Contains("123-45-6789")), true);
+    Check("pdf meta: title handed on", meta.Texts.Any(t => t.Text == "Smith v. Jones settlement"), true);
+    Check("pdf meta: no raw author in items", meta.Items.Any(i => i.What.Contains("Jane")), false);
+
+    var rich = PdfInspector.Inspect(HiddenFixtures.RichPdf);
+    Check("pdf rich: attachment is high severity", rich.Items.Any(i => i.Category == HiddenCategory.Attachments && i.Severity == FindingSeverity.High), true);
+    Check("pdf rich: attachment name masked", rich.Items.Any(i => i.What.Contains("c••••••.xlsx")), true);
+    Check("pdf rich: comment by author", rich.Items.Any(i => i.Category == HiddenCategory.Comments && i.What.Contains("by M••• S••••")), true);
+    Check("pdf rich: comment text handed on", rich.Texts.Any(t => t.Area == "Comments and markup" && t.Text.Contains("555-123-4567")), true);
+    Check("pdf rich: javascript", rich.Items.Any(i => i.Category == HiddenCategory.Scripts), true);
+    Check("pdf rich: layer switched off", rich.Items.Any(i => i.Category == HiddenCategory.HiddenText && i.Where == "Layers"), true);
+    Check("pdf rich: one save only", rich.Items.Any(i => i.Category == HiddenCategory.SavedVersions), false);
+
+    // The same content packed into compressed object streams: the details live inside them.
+    var packedText = System.Text.Encoding.Latin1.GetString(HiddenFixtures.PackedPdf);
+    Check("pdf packed: really uses object streams", packedText.Contains("/ObjStm"), true);
+    Check("pdf packed: author no longer readable as plain text", packedText.Contains("/Author"), false);
+    var packed = PdfInspector.Inspect(HiddenFixtures.PackedPdf);
+    string Cats(HiddenInspection r) => string.Join(",", r.Items.Select(i => i.Category.ToString() + ":" + i.Severity).Distinct().OrderBy(x => x));
+    Check("pdf packed: same findings as the plain file", Cats(packed), Cats(rich));
+    Check("pdf packed: comment text found inside object streams", packed.Texts.Any(t => t.Text.Contains("555-123-4567")), true);
+
+    var inc = PdfInspector.Inspect(HiddenFixtures.IncrementalPdf);
+    Check("pdf incremental: earlier versions flagged", inc.Items.Any(i => i.Category == HiddenCategory.SavedVersions), true);
+    Check("pdf incremental: later keyword found", inc.Items.Any(i => i.What.StartsWith("Keywords:")), true);
+
+    var locked = PdfInspector.Inspect(HiddenFixtures.LockedPdf);
+    Check("pdf locked: not checked", locked.WasChecked, false);
+    Check("pdf locked: says why", locked.Note!.Contains("password"), true);
+
+    Check("pdf: not a pdf", PdfInspector.Inspect(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9 }).WasChecked, false);
+    Check("pdf: header but no structure", PdfInspector.Inspect(System.Text.Encoding.ASCII.GetBytes("%PDF-1.4\nnothing else here at all")).WasChecked, false);
+
+    // A page-picture PDF built by our own writer carries none of it: that is why it is the way PDFs get cleaned.
+    using var rebuilt = new MemoryStream();
+    ImagePdfWriter.Write(rebuilt, new[] { new PdfPageImage(jpeg, 24, 32, 612, 792), new PdfPageImage(jpeg, 24, 32, 612, 792) });
+    var rebuiltResult = PdfInspector.Inspect(rebuilt.ToArray());
+    Check("pdf rebuilt from pictures: checked", rebuiltResult.WasChecked, true);
+    Check("pdf rebuilt from pictures: nothing hidden", rebuiltResult.Items.Count, 0);
+}
+
+// ---------- 26. Pictures ----------
+{
+    // A JPEG with an EXIF block (camera, GPS) and a text comment added in front of a known clean one.
+    byte[] Tiff()
+    {
+        using var ms = new MemoryStream(); using var w = new BinaryWriter(ms);
+        w.Write(new byte[] { (byte)'I', (byte)'I', 42, 0 }); w.Write(8u);
+        w.Write((ushort)2);
+        w.Write((ushort)0x010F); w.Write((ushort)2); w.Write(5u); w.Write(38u);               // Make -> "ACME" at 38
+        w.Write((ushort)0x8825); w.Write((ushort)4); w.Write(1u); w.Write(44u);               // GPS IFD at 44
+        w.Write(0u);
+        w.Write(new byte[] { (byte)'A', (byte)'C', (byte)'M', (byte)'E', 0, 0 });             // 38..43
+        w.Write((ushort)3);                                                                    // GPS IFD at 44
+        w.Write((ushort)1); w.Write((ushort)2); w.Write(2u); w.Write(new byte[] { (byte)'N', 0, 0, 0 });
+        w.Write((ushort)2); w.Write((ushort)5); w.Write(3u); w.Write(200u);
+        w.Write((ushort)4); w.Write((ushort)5); w.Write(3u); w.Write(224u);
+        w.Write(0u);
+        return ms.ToArray();
+    }
+    byte[] Segment(byte marker, byte[] payload)
+    {
+        var seg = new byte[4 + payload.Length];
+        seg[0] = 0xFF; seg[1] = marker; seg[2] = (byte)((payload.Length + 2) >> 8); seg[3] = (byte)((payload.Length + 2) & 0xFF);
+        payload.CopyTo(seg, 4);
+        return seg;
+    }
+    var exifPayload = System.Text.Encoding.ASCII.GetBytes("Exif\0\0").Concat(Tiff()).ToArray();
+    var withMeta = jpeg.Take(2).Concat(Segment(0xE1, exifPayload)).Concat(Segment(0xFE, System.Text.Encoding.UTF8.GetBytes("note: SSN 123-45-6789")))
+        .Concat(jpeg.Skip(2)).ToArray();
+
+    var jpgFound = ImageMetadata.Inspect(withMeta, ".jpg");
+    Check("jpeg: checked", jpgFound.WasChecked, true);
+    Check("jpeg: gps found, high severity", jpgFound.Items.Any(i => i.Category == HiddenCategory.Location && i.Severity == FindingSeverity.High), true);
+    Check("jpeg: device found", jpgFound.Items.Any(i => i.What.StartsWith("The make and model")), true);
+    Check("jpeg: comment found", jpgFound.Items.Any(i => i.What.StartsWith("A text comment")), true);
+    Check("jpeg: comment text handed on", jpgFound.Texts.Any(t => t.Text.Contains("123-45-6789")), true);
+    Check("jpeg: plain picture has nothing", ImageMetadata.Inspect(jpeg, ".jpg").Items.Count, 0);
+
+    var (jpgClean, jpgRemoved) = ImageMetadata.Strip(withMeta, ".jpg");
+    Check("jpeg strip: back to exactly the original bytes", jpgClean.SequenceEqual(jpeg), true);
+    Check("jpeg strip: says what it removed", jpgRemoved.Any(r => r.Contains("EXIF")) && jpgRemoved.Any(r => r.Contains("comment")), true);
+    Check("jpeg strip: inspection is clean", ImageMetadata.Inspect(jpgClean, ".jpg").Items.Count, 0);
+    Check("jpeg strip: nothing to strip changes nothing", ImageMetadata.Strip(jpeg, ".jpg").Data.SequenceEqual(jpeg), true);
+    Check("jpeg: not a jpeg", ImageMetadata.Inspect(new byte[] { 1, 2, 3, 4, 5 }, ".jpg").WasChecked, false);
+
+    // Real files made by Pillow: a JPEG with camera, GPS and a thumbnail, and a PNG with text notes and EXIF.
+    var pillowJpg = ImageMetadata.Inspect(HiddenFixtures.PhotoJpg, ".jpg");
+    Check("pillow jpeg: gps", pillowJpg.Items.Any(i => i.Category == HiddenCategory.Location), true);
+    Check("pillow jpeg: serial number", pillowJpg.Items.Any(i => i.What.Contains("serial number")), true);
+    Check("pillow jpeg: author text", pillowJpg.Items.Any(i => i.What == "Author text is stored: J••• D••"), true);
+    var pillowJpgClean = ImageMetadata.Strip(HiddenFixtures.PhotoJpg, ".jpg").Data;
+    Check("pillow jpeg strip: clean", ImageMetadata.Inspect(pillowJpgClean, ".jpg").Items.Count, 0);
+    Check("pillow jpeg strip: still a jpeg", pillowJpgClean[0] == 0xFF && pillowJpgClean[1] == 0xD8 && pillowJpgClean[^2] == 0xFF && pillowJpgClean[^1] == 0xD9, true);
+    Check("pillow jpeg strip: smaller", pillowJpgClean.Length < HiddenFixtures.PhotoJpg.Length, true);
+
+    var png = ImageMetadata.Inspect(HiddenFixtures.PhotoPng, ".png");
+    Check("png: gps from the EXIF chunk", png.Items.Any(i => i.Category == HiddenCategory.Location), true);
+    Check("png: text notes named", png.Items.Any(i => i.What.Contains("Author") && i.What.Contains("Comment")), true);
+    Check("png: note text handed on", png.Texts.Any(t => t.Text.Contains("MRN 0048151")), true);
+    var (pngClean, pngRemoved) = ImageMetadata.Strip(HiddenFixtures.PhotoPng, ".png");
+    Check("png strip: clean", ImageMetadata.Inspect(pngClean, ".png").Items.Count, 0);
+    Check("png strip: says what it removed", pngRemoved.Count >= 2, true);
+    var chunkTypes = new List<string>();
+    for (int i = 8; i + 12 <= pngClean.Length;)
+    {
+        int len = pngClean[i] << 24 | pngClean[i + 1] << 16 | pngClean[i + 2] << 8 | pngClean[i + 3];
+        chunkTypes.Add(System.Text.Encoding.ASCII.GetString(pngClean, i + 4, 4));
+        i += 12 + len;
+    }
+    Check("png strip: picture chunks kept, metadata chunks gone", chunkTypes.Contains("IHDR") && chunkTypes.Contains("IDAT") && chunkTypes[^1] == "IEND"
+        && !chunkTypes.Contains("tEXt") && !chunkTypes.Contains("eXIf"), true);
+}
+
+// ---------- 27. Dispatcher and clean copies on disk ----------
+{
+    var hdir = Path.Combine(Path.GetTempPath(), "aegis-hidden-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(hdir);
+    try
+    {
+        var docxPath = Path.Combine(hdir, "memo.docx"); File.WriteAllBytes(docxPath, BuildDocx());
+        var pdfPath = Path.Combine(hdir, "memo.pdf"); File.WriteAllBytes(pdfPath, HiddenFixtures.RichPdf);
+        var jpgPath = Path.Combine(hdir, "photo.jpg"); File.WriteAllBytes(jpgPath, HiddenFixtures.PhotoJpg);
+        var docPath = Path.Combine(hdir, "old.doc"); File.WriteAllBytes(docPath, new byte[] { 0xD0, 0xCF, 0x11, 0xE0, 1, 2, 3 });
+        var tifPath = Path.Combine(hdir, "scan.tif"); File.WriteAllBytes(tifPath, new byte[] { 1, 2, 3 });
+        var lockedDocx = Path.Combine(hdir, "locked.docx"); File.WriteAllBytes(lockedDocx, new byte[] { 0xD0, 0xCF, 0x11, 0xE0, 1, 2, 3 });
+        var brokenDocx = Path.Combine(hdir, "broken.docx"); File.WriteAllText(brokenDocx, "this is not a zip file");
+
+        Check("dispatch docx", HiddenContentInspector.Inspect(docxPath).Items.Count > 5, true);
+        Check("dispatch pdf", HiddenContentInspector.Inspect(pdfPath).Items.Any(i => i.Category == HiddenCategory.Attachments), true);
+        Check("dispatch jpg", HiddenContentInspector.Inspect(jpgPath).Items.Any(i => i.Category == HiddenCategory.Location), true);
+        Check("dispatch .doc is not checked", HiddenContentInspector.Inspect(docPath).WasChecked, false);
+        Check("dispatch .doc says to save as .docx", HiddenContentInspector.Inspect(docPath).Note!.Contains(".docx"), true);
+        Check("dispatch .tif is not checked", HiddenContentInspector.Inspect(tifPath).WasChecked, false);
+        Check("dispatch protected docx is not checked", HiddenContentInspector.Inspect(lockedDocx).Note!.Contains("password"), true);
+        Check("dispatch broken docx is not checked", HiddenContentInspector.Inspect(brokenDocx).WasChecked, false);
+        Check("dispatch missing file is not checked", HiddenContentInspector.Inspect(Path.Combine(hdir, "gone.docx")).WasChecked, false);
+
+        Check("can clean docx", HiddenContentCleaner.CanClean(docxPath), true);
+        Check("can clean jpg", HiddenContentCleaner.CanClean(jpgPath), true);
+        Check("pdf is cleaned another way", HiddenContentCleaner.CanClean(pdfPath), false);
+
+        // naming
+        var outDir = Path.Combine(hdir, "clean");
+        Check("copy name", Path.GetFileName(HiddenContentCleaner.CleanCopyPath(outDir, "memo.docx")), "memo_CLEAN.docx");
+        Check("copy keeps folders", HiddenContentCleaner.CleanCopyPath(outDir, Path.Combine("Client A", "memo.docx")),
+              Path.Combine(Path.GetFullPath(outDir), "Client A", "memo_CLEAN.docx"));
+        Check("copy can change extension", Path.GetFileName(HiddenContentCleaner.CleanCopyPath(outDir, "memo.pdf", ".pdf")), "memo_CLEAN.pdf");
+        Check("copy path can't climb out of the output folder",
+              Path.GetDirectoryName(HiddenContentCleaner.CleanCopyPath(outDir, Path.Combine("..", "..", "evil", "x.docx"))), Path.GetFullPath(outDir));
+
+        // cleaning the files
+        var hashBefore = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(docxPath)));
+        var docxOut = HiddenContentCleaner.CleanCopyPath(outDir, "memo.docx");
+        var res = HiddenContentCleaner.CleanFile(docxPath, docxOut, new CleanOptions());
+        Check("clean file: copy exists", File.Exists(docxOut), true);
+        Check("clean file: original untouched", Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(docxPath))), hashBefore);
+        Check("clean file: copy is clean", HiddenContentInspector.Inspect(docxOut).Items.Count, 0);
+        Check("clean file: summary", res.Removed.Count > 3, true);
+        Check("second copy gets a new name", Path.GetFileName(HiddenContentCleaner.CleanCopyPath(outDir, "memo.docx")), "memo_CLEAN (2).docx");
+
+        var jpgOut = HiddenContentCleaner.CleanCopyPath(outDir, "photo.jpg");
+        HiddenContentCleaner.CleanFile(jpgPath, jpgOut, new CleanOptions());
+        Check("clean picture: copy is clean", HiddenContentInspector.Inspect(jpgOut).Items.Count, 0);
+        Check("clean picture: original keeps its data", HiddenContentInspector.Inspect(jpgPath).Items.Count > 0, true);
+
+        var keepPictureData = HiddenContentCleaner.CleanCopyPath(outDir, "photo.jpg");
+        HiddenContentCleaner.CleanFile(jpgPath, keepPictureData, new CleanOptions { PictureMetadata = false });
+        Check("clean picture: option off leaves it alone", File.ReadAllBytes(keepPictureData).SequenceEqual(File.ReadAllBytes(jpgPath)), true);
+
+        var badOut = Path.Combine(outDir, "broken_CLEAN.docx");
+        Check("clean file: a damaged file throws", ThrowsNothing(() => HiddenContentCleaner.CleanFile(brokenDocx, badOut, new CleanOptions())), false);
+        Check("clean file: no half-written copy left behind", File.Exists(badOut), false);
+
+        // the cleanup log
+        var cleanLogCsv = CleanupLogWriter.ToCsv(new[]
+        {
+            new CleanupLogEntry("memo.docx", "clean/memo_CLEAN.docx", "AAA", "BBB", new[] { "Removed all comments", "Cleared properties" }, Array.Empty<string>(), "Clean copy made"),
+            new CleanupLogEntry("=evil.docx", null, null, null, Array.Empty<string>(), Array.Empty<string>(), "Not cleaned: the file is damaged"),
+        }, new DateTimeOffset(2026, 10, 24, 9, 0, 0, TimeSpan.Zero), "0.1.0");
+        var cleanLogLines = cleanLogCsv.TrimEnd().Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+        Check("cleanup log: header + 2 rows", cleanLogLines.Length, 3);
+        Check("cleanup log: hashes recorded", cleanLogLines[1].Contains("\"AAA\"") && cleanLogLines[1].Contains("\"BBB\""), true);
+        Check("cleanup log: removed list joined", cleanLogLines[1].Contains("Removed all comments; Cleared properties"), true);
+        Check("cleanup log: formula guard", cleanLogLines[2].StartsWith("\"'=evil.docx\""), true);
+    }
+    finally { Directory.Delete(hdir, true); }
+}
+
+// ---------- 28. Scanning folders ----------
+{
+    var root = Path.Combine(Path.GetTempPath(), "aegis-folder-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(Path.Combine(root, "sub", "deep"));
+    void Touch(string rel) => File.WriteAllText(Path.Combine(root, rel), "x");
+    try
+    {
+        foreach (var f in new[] { "a.pdf", "B.DOCX", "notes.txt", "~$lock.docx", Path.Combine("sub", "c.png"), Path.Combine("sub", "deep", "d.jpg"), Path.Combine("sub", "data.cleanLogCsv") })
+            Touch(f);
+
+        var all = FolderScan.Enumerate(root, includeSubfolders: true);
+        Check("folder: finds readable files in every folder", all.Files.Count, 4);
+        Check("folder: relative paths",
+              string.Join("|", all.Files.Select(f => f.RelativePath.Replace('\\', '/'))), "a.pdf|B.DOCX|sub/c.png|sub/deep/d.jpg");
+        Check("folder: counts the unreadable ones", all.UnsupportedFiles, 2);          // notes.txt and data.cleanLogCsv (the ~$ lock file is ignored outright)
+        Check("folder: full paths", all.Files.All(f => Path.IsPathRooted(f.FullPath) && File.Exists(f.FullPath)), true);
+
+        var top = FolderScan.Enumerate(root, includeSubfolders: false);
+        Check("folder: top level only", top.Files.Count, 2);
+
+        var capped = FolderScan.Enumerate(root, includeSubfolders: true, maxFiles: 3);
+        Check("folder: cap", capped.Files.Count, 3);
+        Check("folder: cap flagged", capped.WasCapped, true);
+        Check("folder: no cap flag when everything fits", all.WasCapped, false);
+
+        var empty = Path.Combine(root, "sub", "deep", "nothing"); Directory.CreateDirectory(empty);
+        Check("folder: empty folder", FolderScan.Enumerate(empty, true).Files.Count, 0);
+    }
+    finally { Directory.Delete(root, true); }
+}
+
+// ---------- 29. Scanner with hidden content ----------
+{
+    var hiddenFound = new HiddenInspection(
+        new[]
+        {
+            new HiddenItem(HiddenCategory.Comments, FindingSeverity.Medium, "1 comment by M••• S••••", "Comments"),
+            new HiddenItem(HiddenCategory.TrackedChanges, FindingSeverity.High, "1 tracked deletion: the deleted text can still be read", "Tracked changes"),
+        },
+        new[] { new HiddenText("Comments", "Call back, SSN 123-45-6789"), new HiddenText("Document properties", "Quarterly memo") });
+
+    var withHidden = ComplianceScanner.ScanPageTexts("C:/docs/memo.docx", "abc", new[] { "Nothing sensitive on the page." },
+        ComplianceProfiles.GeneralPii, null, hiddenFound, displayName: "Client A/memo.docx");
+    Check("hidden: finding from a comment", withHidden.Findings.Count, 1);
+    var f1 = withHidden.Findings[0];
+    Check("hidden: finding kind", f1.Kind, SensitiveKind.Ssn);
+    Check("hidden: finding is not on a page", f1.Page, 0);
+    Check("hidden: finding says where", f1.Location, "Comments");
+    Check("hidden: finding is masked", f1.MaskedValue, "•••-••-6789");
+    Check("hidden: items carried, worst first", withHidden.HiddenItems[0].Severity, FindingSeverity.High);
+    Check("hidden: status counts both", withHidden.StatusText, "1 item to review · 2 hidden-content items");
+    Check("hidden: display name", withHidden.DisplayName, "Client A/memo.docx");
+    Check("display name defaults to the file name", ComplianceScanner.ScanPageTexts("C:/docs/x.pdf", null, new[] { "hi" }, ComplianceProfiles.GeneralPii).DisplayName, "x.pdf");
+
+    var onlyHidden = ComplianceScanner.ScanPageTexts("m.docx", null, new[] { "Plain." }, ComplianceProfiles.GeneralPii, null,
+        new HiddenInspection(new[] { new HiddenItem(HiddenCategory.Comments, FindingSeverity.Medium, "1 comment", "Comments") }, Array.Empty<HiddenText>()));
+    Check("hidden: only hidden items", onlyHidden.StatusText, "1 hidden-content item");
+
+    var notChecked = ComplianceScanner.ScanPageTexts("old.doc", null, new[] { "Plain." }, ComplianceProfiles.GeneralPii, null,
+        HiddenInspection.NotChecked("older Word formats (.doc, .rtf) can't be checked for hidden content: save the file as .docx first"));
+    Check("hidden: an uncheckable file is not called clean without a caution", notChecked.Note!.Contains("save the file as .docx"), true);
+
+    var customInComment = ComplianceScanner.ScanPageTexts("m.docx", null, new[] { "Plain." }, ComplianceProfiles.GeneralPii, new[] { "Project Falcon" },
+        new HiddenInspection(Array.Empty<HiddenItem>(), new[] { new HiddenText("Hidden text", "see project falcon notes") }));
+    Check("hidden: your own words are found in hidden text too", customInComment.Findings.Any(f => f.Kind == SensitiveKind.CustomTerm && f.Area == "Hidden text"), true);
+
+    // report
+    var reportWithHidden = new ScanReport(ComplianceProfiles.GeneralPii,
+        new[] { withHidden, ComplianceScanner.Skipped("C:/docs/x.pdf", "stopped before this file", "Client A/x.pdf") },
+        new DateTimeOffset(2026, 10, 24, 9, 30, 0, TimeSpan.Zero), "0.1.0", 0, stoppedEarly: true, checkedHiddenContent: true);
+    Check("report: hidden total", reportWithHidden.TotalHiddenItems, 2);
+    var html2 = ScanReportWriter.ToHtml(reportWithHidden);
+    Check("report: stopped notice", html2.Contains("stopped before it finished"), true);
+    Check("report: hidden section", html2.Contains("Hidden content") && html2.Contains("1 tracked deletion"), true);
+    Check("report: where column", html2.Contains("<th>Where</th>") && html2.Contains(">Comments<"), true);
+    Check("report: display name used", html2.Contains("Client A/memo.docx"), true);
+    Check("report: hidden check described", html2.Contains("earlier saved versions"), true);
+    Check("report: hidden check limits stated", html2.Contains("older Word files (.doc, .rtf)"), true);
+    Check("report: raw ssn absent", html2.Contains("123-45-6789"), false);
+    var csv2 = ScanReportWriter.ToCsv(reportWithHidden);
+    var csv2Lines = csv2.TrimEnd().Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+    Check("report cleanLogCsv: header + 1 finding + 2 hidden + 1 skipped", csv2Lines.Length, 5);
+    Check("report cleanLogCsv: hidden rows labelled", csv2.Contains("\"Hidden content\"") && csv2.Contains("Tracked changes"), true);
+    Check("report cleanLogCsv: raw ssn absent", csv2.Contains("123-45-6789"), false);
+    var noHiddenHtml = ScanReportWriter.ToHtml(new ScanReport(ComplianceProfiles.GeneralPii, new[] { withHidden }, DateTimeOffset.Now, "0.1.0", 0));
+    Check("report: no hidden-check claims when it wasn't run", noHiddenHtml.Contains("earlier saved versions"), false);
+    Check("report: no stopped notice on a finished run", noHiddenHtml.Contains("stopped before it finished"), false);
+}
+
+// ---------- 30. Redaction log ----------
+{
+    RedactionRegion R(int page, SensitiveKind? kind, string text, bool approved = true) => new(page, kind, text, 0, 0, 10, 10) { Approved = approved };
+    var logRegions = new[]
+    {
+        R(0, SensitiveKind.Ssn, "123-45-6789"), R(0, SensitiveKind.Ssn, "987-65-4321"), R(1, SensitiveKind.Ssn, "111-22-3333", approved: false),
+        R(1, SensitiveKind.Email, "jane@example.com"), R(1, null, ""),
+    };
+    var log = RedactionLog.Create("C:/in/Smith file.pdf", "AAA111", "C:/out/Smith file_REDACTED.pdf", "BBB222",
+        new DateTimeOffset(2026, 10, 24, 9, 30, 0, TimeSpan.Zero), "0.1.0", "andrew", 2, logRegions, searchableCopy: true, sourceWasProtected: false,
+        itemsChecked: 3, itemsStillReadable: 0);
+
+    Check("log: redacted total", log.TotalRedacted, 4);
+    Check("log: left visible total", log.TotalLeftVisible, 1);
+    Check("log: hand-drawn boxes", log.HandDrawnBoxes, 1);
+    Check("log: ssn row", log.Kinds.First(k => k.Item == "SSN"), new RedactionLogKindRow("SSN", 2, 1));
+    Check("log: email row", log.Kinds.First(k => k.Item == "Email"), new RedactionLogKindRow("Email", 1, 0));
+    Check("log: page 2 row", log.Pages.First(p => p.Page == 2), new RedactionLogPageRow(2, 1, 1, 1));
+    Check("log: names", log.SourceName + "|" + log.OutputName, "Smith file.pdf|Smith file_REDACTED.pdf");
+    Check("log: path next to the copy", Path.GetFileName(RedactionLog.LogPathFor("C:/out/Smith file_REDACTED.pdf")), "Smith file_REDACTED - redaction log.html");
+
+    var logHtml = RedactionLogWriter.ToHtml(log);
+    Check("log html: fingerprints", logHtml.Contains("AAA111") && logHtml.Contains("BBB222"), true);
+    Check("log html: who", logHtml.Contains("by andrew"), true);
+    Check("log html: never the redacted values", logHtml.Contains("123-45-6789") || logHtml.Contains("987-65-4321") || logHtml.Contains("jane@example.com"), false);
+    Check("log html: kinds listed", logHtml.Contains("<td>SSN</td>") && logHtml.Contains("<td>Email</td>"), true);
+    Check("log html: verification statement", logHtml.Contains("None could be read in it"), true);
+    Check("log html: hand-drawn caution", logHtml.Contains("Hand-drawn boxes can't be checked"), true);
+    Check("log html: not a certificate", logHtml.Contains("not a certificate"), true);
+    Check("log html: searchable noted", logHtml.Contains("It is searchable"), true);
+
+    var leaky = RedactionLog.Create("a.pdf", null, "a_REDACTED.pdf", null, DateTimeOffset.Now, "0.1.0", null, 1, logRegions, false, true, 3, 2);
+    var leakyHtml = RedactionLogWriter.ToHtml(leaky);
+    Check("log html: leak warning", leakyHtml.Contains("2 of the 3 redacted item(s) could still be read"), true);
+    Check("log html: protected original noted", leakyHtml.Contains("password-protected"), true);
+    Check("log html: missing hashes say so", leakyHtml.Contains("not recorded"), true);
+    Check("log html: not searchable noted", leakyHtml.Contains("It is not searchable"), true);
+    var leakyMeta = leakyHtml.Substring(leakyHtml.IndexOf("Saved "), leakyHtml.IndexOf("with Aegis Docs") - leakyHtml.IndexOf("Saved "));
+    Check("log html: no user named when unknown", leakyMeta.Contains(" by "), false);
+
+    var nothing = RedactionLog.Create("a.pdf", null, "b.pdf", null, DateTimeOffset.Now, "0.1.0", null, 1, Array.Empty<RedactionRegion>(), false, false, 0, 0);
+    Check("log html: nothing redacted", RedactionLogWriter.ToHtml(nothing).Contains("nothing to check for"), true);
+}
+
+// ======================================================================
+// Values under their label (ID cards, forms, statements)
+// ======================================================================
+{
+    // The layout of a Pennsylvania ID camera card, with word positions measured from a photo and made-up values.
+    // lineByCell: some OCR engines return every table cell as its own line instead of one line per row.
+    List<WordBox> CardWords(bool lineByCell = false, double tilt = 0.004, bool reverseOrder = false)
+    {
+        var list = new List<WordBox>();
+        int nextLine = 0; var lineOf = new Dictionary<(int Row, int Cell), int>();
+        void Add(int row, int cell, string text, double x, double w, double y, double h)
+        {
+            if (!lineOf.TryGetValue(lineByCell ? (row, cell) : (row, 0), out var line)) lineOf[lineByCell ? (row, cell) : (row, 0)] = line = nextLine++;
+            list.Add(new WordBox(text, x, y + x * tilt, w, h, line));
+        }
+        // header row 1
+        Add(0, 0, "SEX", 40, 50, 290, 22); Add(0, 1, "HEIGHT", 130, 85, 290, 22); Add(0, 2, "EYES", 280, 60, 290, 22);
+        Add(0, 3, "DRIVER", 400, 75, 290, 22); Add(0, 3, "/", 485, 10, 290, 22); Add(0, 3, "ID", 505, 25, 290, 22); Add(0, 3, "NUMBER", 540, 75, 290, 22);
+        Add(0, 4, "EXPIRATION", 720, 105, 290, 22); Add(0, 4, "DATE", 835, 60, 290, 22);
+        Add(0, 5, "BIRTH", 1008, 60, 290, 22); Add(0, 5, "DATE", 1078, 55, 290, 22);
+        Add(0, 6, "DUPS", 1190, 55, 290, 22);
+        // value row 1
+        Add(1, 0, "M", 65, 25, 335, 32); Add(1, 1, "5", 135, 22, 335, 32); Add(1, 1, "09", 180, 38, 335, 32); Add(1, 2, "BRO", 275, 75, 335, 32);
+        Add(1, 3, "12", 392, 45, 335, 32); Add(1, 3, "345", 468, 70, 335, 32); Add(1, 3, "678", 568, 70, 335, 32);
+        Add(1, 4, "02", 720, 45, 335, 32); Add(1, 4, "28", 790, 45, 335, 32); Add(1, 4, "30", 865, 45, 335, 32);
+        Add(1, 5, "07", 995, 45, 335, 32); Add(1, 5, "15", 1065, 45, 335, 32); Add(1, 5, "85", 1135, 45, 335, 32);
+        Add(1, 6, "00", 1195, 45, 335, 32);
+        // header row 2
+        Add(2, 0, "CLASSES", 320, 95, 385, 22); Add(2, 1, "ENDORSEMENTS", 460, 170, 385, 22);
+        Add(2, 2, "ISSUE", 690, 55, 385, 22); Add(2, 2, "DATE", 755, 50, 385, 22);
+        Add(2, 3, "COMMERCIAL", 840, 120, 385, 22); Add(2, 3, "/", 970, 10, 385, 22); Add(2, 3, "MEDICAL", 990, 85, 385, 22); Add(2, 3, "RESTRICTIONS", 1085, 150, 385, 22);
+        // value row 2
+        Add(3, 0, "--", 340, 45, 430, 32); Add(3, 1, "-----", 475, 110, 430, 32); Add(3, 2, "021026", 675, 110, 430, 32); Add(3, 3, "*****************", 850, 395, 430, 32);
+        if (reverseOrder) list.Reverse();
+        return list;
+    }
+
+    var everything = new FindOptions();
+
+    foreach (var (name, cardWordList) in new[]
+    {
+        ("one OCR line per row", CardWords()),
+        ("one OCR line per cell", CardWords(lineByCell: true)),
+        ("no tilt", CardWords(tilt: 0)),
+        ("stronger tilt", CardWords(tilt: 0.01)),
+        ("cardWordList in any order", CardWords(reverseOrder: true)),
+    })
+    {
+        var cardRegions = RedactionMapper.FindRegions(0, cardWordList, everything);
+        Check($"card ({name}): driver/ID number found", cardRegions.Any(r => r.Kind == SensitiveKind.DriversLicense && r.MatchedText == "12 345 678"), true);
+        Check($"card ({name}): birth date found", cardRegions.Any(r => r.Kind == SensitiveKind.DateOfBirth && r.MatchedText == "07 15 85"), true);
+        Check($"card ({name}): nothing else is marked", cardRegions.Count, 2);
+    }
+
+    var cardFound = RedactionMapper.FindRegions(0, CardWords(), everything);
+    var dl = cardFound.First(r => r.Kind == SensitiveKind.DriversLicense);
+    Check("card: box starts at the first digit group", dl.X < 392 && dl.X > 380, true);
+    Check("card: box reaches the last digit group", dl.X + dl.Width > 638, true);
+    Check("card: box does not run into the next column", dl.X + dl.Width < 700, true);
+    Check("card: box is on the value row, not the label row", dl.Y > 320, true);
+    var dob = cardFound.First(r => r.Kind == SensitiveKind.DateOfBirth);
+    Check("card: birth date box stays in its column", dob.X > 980 && dob.X + dob.Width < 1190, true);
+
+    // Why positions matter: read as plain text, the header row and the value row are two separate lines of unrelated words.
+    Check("card: the text patterns alone can't link these values to their labels",
+          Found(PageTextBuilder.Build(CardWords()).Text, everything).Any(h => h.Kind is SensitiveKind.DriversLicense or SensitiveKind.DateOfBirth), false);
+
+    // other dates on the card are only picked up when asked for
+    var datesToo = RedactionMapper.FindRegions(0, CardWords(), new FindOptions { AllDates = true });
+    Check("card, all dates: birth date still reads as a birth date", datesToo.Count(r => r.Kind == SensitiveKind.DateOfBirth), 1);
+    Check("card, all dates: expiration date found", datesToo.Any(r => r.Kind == SensitiveKind.Date && r.MatchedText == "02 28 30"), true);
+    Check("card, all dates: issue date found", datesToo.Any(r => r.Kind == SensitiveKind.Date && r.MatchedText == "021026"), true);
+    Check("card, all dates: birth date not also reported as a plain date", datesToo.Count(r => r.MatchedText == "07 15 85"), 1);
+
+    // options are respected
+    Check("card: licence off", RedactionMapper.FindRegions(0, CardWords(), new FindOptions { DriversLicense = false }).Any(r => r.Kind == SensitiveKind.DriversLicense), false);
+    Check("card: birth date off", RedactionMapper.FindRegions(0, CardWords(), new FindOptions { DateOfBirth = false }).Any(r => r.Kind == SensitiveKind.DateOfBirth), false);
+
+    // a stray word that OCR glued onto the value is left out
+    var stray = CardWords(); stray.Add(new WordBox("X", 372, 335 + 372 * 0.004, 14, 32, 1));
+    Check("card: a stray word beside the value doesn't stop it being found", RedactionMapper.FindRegions(0, stray, everything).Any(r => r.Kind == SensitiveKind.DriversLicense), true);
+
+    // OCR noise: cell borders read as separate "|" words or stuck to the numbers, and O read for 0
+    var bordered = CardWords();
+    bordered.Add(new WordBox("|", 380, 335 + 380 * 0.004, 8, 32, 1)); bordered.Add(new WordBox("|", 655, 335 + 655 * 0.004, 8, 32, 1));
+    Check("card: borders read as separate words don't stop it", RedactionMapper.FindRegions(0, bordered, everything).Any(r => r.Kind == SensitiveKind.DriversLicense), true);
+    var stuck = CardWords().Select(w => w.Text == "12" ? w with { Text = "|12" } : w.Text == "678" ? w with { Text = "678]" } : w).ToList();
+    Check("card: borders stuck to the numbers don't stop it", RedactionMapper.FindRegions(0, stuck, everything).Any(r => r.Kind == SensitiveKind.DriversLicense), true);
+    var misread = CardWords().Select(w => w.Text == "07" ? w with { Text = "O7" } : w.Text == "15" ? w with { Text = "l5" } : w).ToList();
+    Check("card: O for 0 and l for 1 in the birth date still reads as a date", RedactionMapper.FindRegions(0, misread, everything).Any(r => r.Kind == SensitiveKind.DateOfBirth), true);
+    var barsBothEnds = CardWords().Select(w => w.Text == "12" ? w with { Text = "|", Width = 8 } : w).ToList();
+    barsBothEnds.Add(new WordBox("12", 392, 335 + 392 * 0.004, 40, 32, 1));
+    Check("card: a border word before the value is left out of the box", RedactionMapper.FindRegions(0, barsBothEnds, everything).First(r => r.Kind == SensitiveKind.DriversLicense).MatchedText.StartsWith("|"), false);
+
+    // what must NOT match
+    var noValue = CardWords().Where(w => !(new[] { "12", "345", "678" }.Contains(w.Text))).ToList();
+    Check("no value under the label: nothing marked for it", RedactionMapper.FindRegions(0, noValue, everything).Any(r => r.Kind == SensitiveKind.DriversLicense), false);
+    var wordValue = CardWords().Select(w => w.Text is "12" or "345" or "678" ? w with { Text = w.Text == "12" ? "SIGNATURE" : "HERE" } : w).Where(w => w.Text != "HERE" || true).ToList();
+    Check("cardWordList under the label are not a number", RedactionMapper.FindRegions(0, wordValue, everything).Any(r => r.Kind == SensitiveKind.DriversLicense), false);
+    var notADate = CardWords().Select(w => w.Text is "07" or "15" or "85" ? w with { Text = w.Text == "07" ? "7771" : w.Text == "15" ? "5555" : "9" } : w).ToList();
+    Check("a number that isn't a date under 'birth date' is not marked", RedactionMapper.FindRegions(0, notADate, everything).Any(r => r.Kind == SensitiveKind.DateOfBirth), false);
+    var tooFar = CardWords().Select(w => w.Y > 330 && w.Y < 380 ? w with { Y = w.Y + 150 } : w).ToList();
+    Check("a value far below the label is not taken for it", RedactionMapper.FindRegions(0, tooFar, everything).Any(r => r.Kind == SensitiveKind.DriversLicense), false);
+    var onlyNeighbour = CardWords().Where(w => !(new[] { "12", "345", "678" }.Contains(w.Text))).ToList();
+    onlyNeighbour.Add(new WordBox("98765432", 1210, 335 + 1210 * 0.004, 120, 32, 1));       // a number under DUPS, not under the label
+    Check("a number under a different heading is not taken for it", RedactionMapper.FindRegions(0, onlyNeighbour, everything).Any(r => r.Kind == SensitiveKind.DriversLicense), false);
+
+    // the scanner uses it too (and shows the value partly hidden)
+    var cardPage = new ScannedPage(Array.Empty<byte>(), 2016, 1512, 612, 792, CardWords());
+    var cardScan = ComplianceScanner.ScanPages("card.jpg", null, new[] { cardPage }, ComplianceProfiles.GeneralPii);
+    Check("card scan: driver/ID number reported", cardScan.Findings.Any(f => f.Kind == SensitiveKind.DriversLicense), true);
+    Check("card scan: birth date reported", cardScan.Findings.Any(f => f.Kind == SensitiveKind.DateOfBirth), true);
+    Check("card scan: values are partly hidden", cardScan.Findings.Any(f => f.MaskedValue.Contains("12 345") || f.MaskedValue.Contains("07 15")), false);
+    Check("card scan: licence shows only its last digits", cardScan.Findings.First(f => f.Kind == SensitiveKind.DriversLicense).MaskedValue.EndsWith("678"), true);
+    Check("card scan: has a line number", cardScan.Findings.All(f => f.Line >= 1), true);
+    var hipaaCard = ComplianceScanner.ScanPages("card.jpg", null, new[] { cardPage }, ComplianceProfiles.Hipaa);
+    Check("card scan, HIPAA: expiration and issue dates are reported too", hipaaCard.Findings.Count(f => f.Kind == SensitiveKind.Date), 2);
+
+    // forms: a label above a left-aligned value, with nothing beside it
+    List<WordBox> Form(string label, string value, double labelWidth = 160, double valueWidth = 230)
+    {
+        var l = label.Split(' ').Select((t, i) => new WordBox(t, 100 + i * (labelWidth / label.Split(' ').Length), 200, labelWidth / label.Split(' ').Length - 8, 20, 0));
+        var v = value.Split(' ').Select((t, i) => new WordBox(t, 100 + i * (valueWidth / value.Split(' ').Length), 232, valueWidth / value.Split(' ').Length - 10, 22, 1));
+        return l.Concat(v).ToList();
+    }
+    Check("form: date of birth above a written-out date", RedactionMapper.FindRegions(0, Form("Date of Birth", "February 14, 1977"), everything)
+        .Any(r => r.Kind == SensitiveKind.DateOfBirth && r.MatchedText == "February 14, 1977"), true);
+    Check("form: DOB above a slashed date", RedactionMapper.FindRegions(0, Form("DOB", "02/14/1977", 40, 150), everything)
+        .Any(r => r.Kind == SensitiveKind.DateOfBirth), true);
+    Check("form: account number above a number", RedactionMapper.FindRegions(0, Form("Account Number", "4400 1234 5678"), everything)
+        .Any(r => r.Kind == SensitiveKind.BankAccount), true);
+    Check("form: routing number above nine digits", RedactionMapper.FindRegions(0, Form("Routing Number", "021000021"), everything)
+        .Any(r => r.Kind == SensitiveKind.RoutingNumber && r.MatchedText == "021000021"), true);
+    Check("form: passport above a passport number", RedactionMapper.FindRegions(0, Form("Passport No.", "C01234567"), everything)
+        .Any(r => r.Kind == SensitiveKind.Passport), true);
+    Check("form: driver license number above a number", RedactionMapper.FindRegions(0, Form("Driver License Number", "D123 4567 8901"), everything)
+        .Any(r => r.Kind == SensitiveKind.DriversLicense), true);
+    Check("form: ID number above a number", RedactionMapper.FindRegions(0, Form("ID Number", "12345678"), everything)
+        .Any(r => r.Kind == SensitiveKind.DriversLicense), true);
+    var ssnForm = RedactionMapper.FindRegions(0, Form("Social Security Number", "123-45-6789"), everything);
+    Check("form: ssn found once, not twice", ssnForm.Count(r => r.Kind == SensitiveKind.Ssn), 1);
+    Check("form: ein above an ein", RedactionMapper.FindRegions(0, Form("EIN", "12-3456789", 40, 150), everything).Any(r => r.Kind == SensitiveKind.Ein), true);
+    var hipaaOnly = new FindOptions { Mrn = true, HealthPlanId = true };
+    Check("form: medical record number above a number", RedactionMapper.FindRegions(0, Form("Medical Record Number", "00481516"), hipaaOnly).Any(r => r.Kind == SensitiveKind.Mrn), true);
+    Check("form: member id above an id", RedactionMapper.FindRegions(0, Form("Member ID", "XYZ123456789"), hipaaOnly).Any(r => r.Kind == SensitiveKind.HealthPlanId), true);
+    Check("form: a label with ordinary text under it marks nothing", RedactionMapper.FindRegions(0, Form("Date of Birth", "Please see the attached notes"), everything).Count, 0);
+    Check("form: unrelated cardWordList marked nothing", RedactionMapper.FindRegions(0, Form("Favourite colour", "Blue"), everything).Count, 0);
+}
+
+// ---------- text patterns: the label names and spaced dates the old patterns missed ----------
+{
+    var text = new FindOptions();
+    List<(SensitiveKind Kind, string Text)> Hit(string s) => Found(s, text);
+    Check("text: birth date with spaces", Hit("DOB 02 04 77").Any(h => h.Kind == SensitiveKind.DateOfBirth && h.Text == "02 04 77"), true);
+    Check("text: 'birth date' label, spaced date", Hit("BIRTH DATE: 02 04 1977").Any(h => h.Kind == SensitiveKind.DateOfBirth && h.Text == "02 04 1977"), true);
+    Check("text: slashed date still works", Hit("DOB: 02/04/1977").Any(h => h.Kind == SensitiveKind.DateOfBirth && h.Text == "02/04/1977"), true);
+    Check("text: 'Driver / ID Number'", Hit("Driver / ID Number: 25 960 454").Any(h => h.Kind == SensitiveKind.DriversLicense && h.Text == "25 960 454"), true);
+    Check("text: 'Driver/ID No.'", Hit("Driver/ID No. 25960454").Any(h => h.Kind == SensitiveKind.DriversLicense), true);
+    Check("text: \"Driver's ID\"", Hit("Driver's ID 25960454").Any(h => h.Kind == SensitiveKind.DriversLicense), true);
+    Check("text: 'ID Number'", Hit("ID Number 12345678").Any(h => h.Kind == SensitiveKind.DriversLicense), true);
+    Check("text: 'ID No.'", Hit("ID No. 12345678").Any(h => h.Kind == SensitiveKind.DriversLicense), true);
+    Check("text: 'State ID'", Hit("State ID 12345678").Any(h => h.Kind == SensitiveKind.DriversLicense), true);
+    Check("text: older 'driver license' wording still works", Hit("Driver License No: D1234567").Any(h => h.Kind == SensitiveKind.DriversLicense), true);
+    Check("text: 'ID' alone is not a label", Hit("ID 12345678").Any(h => h.Kind == SensitiveKind.DriversLicense), false);
+    Check("text: 'ID Number' with no number after it", Hit("Please bring your ID number tomorrow").Any(h => h.Kind == SensitiveKind.DriversLicense), false);
 }
 
 Console.WriteLine($"\n{passed} passed, {failed} failed");
