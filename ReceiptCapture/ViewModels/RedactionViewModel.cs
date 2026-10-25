@@ -1,9 +1,11 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Text;
 using System.Windows.Input;
 using ReceiptCapture.Core;
 using ReceiptCapture.Core.Pdf;
 using ReceiptCapture.Core.Redaction;
+using ReceiptCapture.Core.Storage;
 using ReceiptCapture.Services;
 
 namespace ReceiptCapture.ViewModels;
@@ -26,6 +28,7 @@ public sealed class RedactionViewModel : ObservableObject
     private string _summary = "";
     private RedactionRegion? _selectedRegion;
     private bool _makeSearchable = true;
+    private bool _saveLog = true;
     private bool _sourceWasProtected;
 
     private bool _findSsn = true;
@@ -101,6 +104,13 @@ public sealed class RedactionViewModel : ObservableObject
     {
         get => _makeSearchable;
         set => SetProperty(ref _makeSearchable, value);
+    }
+
+    /// <summary>Also save a log next to the copy: what was redacted (never the values), file fingerprints, and the check result.</summary>
+    public bool SaveLog
+    {
+        get => _saveLog;
+        set => SetProperty(ref _saveLog, value);
     }
 
     public bool IsBusy
@@ -495,6 +505,26 @@ public sealed class RedactionViewModel : ObservableObject
                 manualNote += "\n\nThe original was password-protected, but this redacted copy is not. Protect it again before sending it if you need to.";
             if (MakeSearchable)
                 manualNote += "\n\nThe copy is searchable: the text that was not covered can be searched and copied.";
+
+            if (SaveLog)
+            {
+                try
+                {
+                    var sourcePath = _filePath;
+                    var sourceHash = await Task.Run(() => FileHasher.Sha256(sourcePath));
+                    var outputHash = await Task.Run(() => FileHasher.Sha256(outputPath));
+                    var log = RedactionLog.Create(sourcePath, sourceHash, outputPath, outputHash, DateTimeOffset.Now, AppInfo.Version,
+                        Environment.UserName, _pages.Count, Regions.ToList(), MakeSearchable, _sourceWasProtected,
+                        redactedTexts.Count, Math.Min(leaks.Count, redactedTexts.Count));
+                    var logPath = RedactionLog.LogPathFor(outputPath);
+                    await File.WriteAllTextAsync(logPath, RedactionLogWriter.ToHtml(log), new UTF8Encoding(false));
+                    manualNote += $"\n\nA redaction log was saved next to the copy: {Path.GetFileName(logPath)}";
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    manualNote += "\n\nThe redaction log could not be saved: " + ex.Message;
+                }
+            }
 
             if (leaks.Count == 0)
             {
