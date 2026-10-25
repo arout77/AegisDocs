@@ -9,7 +9,7 @@ you can export to CSV for Excel or your accountant. **Meetings**: records the mi
 2. Open `ReceiptCapture.sln`, set **ReceiptCapture** as the startup project, press **F5**.
 3. Drag a receipt onto the window.
 
-## Make a shareable .exe
+## Make an .exe
 Double-click `publish.bat`. It produces `publish\AegisDocs.exe`, a single file that runs on any
 Windows 10/11 PC without installing .NET.
 
@@ -48,10 +48,8 @@ app's `models` folder, so the installer carries it and clients download nothing 
 To try a different model, change `ModelFileName` in `Services/TranscriptionService.cs` and the model name in `build.yml`.
 
 ## Look and feel
-Light and dark themes with the Sora typeface. The **Theme** button (top right) cycles Auto (follows Windows), Light and Dark,
-and your choice is remembered (`%LocalAppData%\ReceiptCapture\settings.json`). Colours live in `ReceiptCapture/Themes/Light.xaml`
-and `Dark.xaml` (identical keys); shared control styles are in `Themes/Shared.xaml`; the switching code is `AppTheme.cs`.
-Standard controls (combo boxes, date pickers, grids, scroll bars) get their modern look from ModernWpfUI.
+Light and dark themes. The **Theme** button (top right) cycles Auto (follows Windows), Light and Dark,
+and your choice is remembered. 
 Windows message boxes are drawn by Windows itself, so they stay light in dark mode.
 
 Third-party licences are listed in `THIRD-PARTY-NOTICES.md`.
