@@ -40,23 +40,7 @@ public sealed class RedactionRegion : ObservableObject
         set => SetProperty(ref _approved, value);
     }
 
-    public string Description => Kind switch
-    {
-        null => "Hand-drawn box",
-        SensitiveKind.Ssn => "SSN",
-        SensitiveKind.Phone => "Phone",
-        SensitiveKind.Email => "Email",
-        SensitiveKind.CreditCard => "Card number",
-        SensitiveKind.DateOfBirth => "Date of birth",
-        SensitiveKind.Ein => "EIN",
-        SensitiveKind.RoutingNumber => "Routing number",
-        SensitiveKind.BankAccount => "Bank account",
-        SensitiveKind.Passport => "Passport",
-        SensitiveKind.DriversLicense => "Driver's license",
-        SensitiveKind.Address => "Address",
-        SensitiveKind.CustomTerm => "Your term",
-        _ => "Item",
-    };
+    public string Description => Kind is { } kind ? SensitiveKindInfo.DisplayName(kind) : "Hand-drawn box";
 
     public string Label => IsManual
         ? $"p{Page + 1} · Hand-drawn box"

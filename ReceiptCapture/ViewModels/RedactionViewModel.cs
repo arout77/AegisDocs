@@ -1,9 +1,11 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Text;
 using System.Windows.Input;
 using ReceiptCapture.Core;
 using ReceiptCapture.Core.Pdf;
 using ReceiptCapture.Core.Redaction;
+using ReceiptCapture.Core.Storage;
 using ReceiptCapture.Services;
 
 namespace ReceiptCapture.ViewModels;
@@ -26,6 +28,7 @@ public sealed class RedactionViewModel : ObservableObject
     private string _summary = "";
     private RedactionRegion? _selectedRegion;
     private bool _makeSearchable = true;
+    private bool _saveLog = true;
     private bool _sourceWasProtected;
 
     private bool _findSsn = true;
@@ -39,6 +42,9 @@ public sealed class RedactionViewModel : ObservableObject
     private bool _findRouting = true;
     private bool _findLicense = true;
     private bool _findPassport = true;
+    private bool _findMrn = true;
+    private bool _findHealthPlan = true;
+    private bool _findRx = true;
     private string _customTermsText = "";
 
     // zoom: "fit" tracks the window size; otherwise a fixed factor where 1.0 = actual size (100%)
@@ -59,6 +65,7 @@ public sealed class RedactionViewModel : ObservableObject
         NextPageCommand = new RelayCommand(() => GoToPage(_currentPage + 1), () => HasDocument && _currentPage < _pages.Count - 1);
         ApproveAllCommand = new RelayCommand(() => SetAllApproved(true), () => Regions.Count > 0);
         ApproveNoneCommand = new RelayCommand(() => SetAllApproved(false), () => Regions.Count > 0);
+        CopyPageTextCommand = new RelayCommand(CopyPageText, () => HasDocument);
         ApplyCommand = new RelayCommand(async () => await ApplyAsync(), () => HasDocument && !IsBusy);
         ZoomInCommand = new RelayCommand(() => ZoomBy(1.25), () => HasDocument);
         ZoomOutCommand = new RelayCommand(() => ZoomBy(0.8), () => HasDocument);
@@ -70,6 +77,9 @@ public sealed class RedactionViewModel : ObservableObject
     // Hooks the view fills in
     // ------------------------------------------------------------------
     public Action<string>? ShowMessage { get; set; }
+
+    /// <summary>Puts text on the clipboard (the view supplies this).</summary>
+    public Action<string>? CopyText { get; set; }
     public Func<string?>? PickFile { get; set; }
     public Func<string, string?>? PickSavePath { get; set; }
 
@@ -101,6 +111,13 @@ public sealed class RedactionViewModel : ObservableObject
     {
         get => _makeSearchable;
         set => SetProperty(ref _makeSearchable, value);
+    }
+
+    /// <summary>Also save a log next to the copy: what was redacted (never the values), file fingerprints, and the check result.</summary>
+    public bool SaveLog
+    {
+        get => _saveLog;
+        set => SetProperty(ref _saveLog, value);
     }
 
     public bool IsBusy
@@ -146,6 +163,9 @@ public sealed class RedactionViewModel : ObservableObject
     public bool FindRouting { get => _findRouting; set { if (SetProperty(ref _findRouting, value)) RebuildAutoRegions(); } }
     public bool FindLicense { get => _findLicense; set { if (SetProperty(ref _findLicense, value)) RebuildAutoRegions(); } }
     public bool FindPassport { get => _findPassport; set { if (SetProperty(ref _findPassport, value)) RebuildAutoRegions(); } }
+    public bool FindMrn { get => _findMrn; set { if (SetProperty(ref _findMrn, value)) RebuildAutoRegions(); } }
+    public bool FindHealthPlan { get => _findHealthPlan; set { if (SetProperty(ref _findHealthPlan, value)) RebuildAutoRegions(); } }
+    public bool FindRx { get => _findRx; set { if (SetProperty(ref _findRx, value)) RebuildAutoRegions(); } }
 
     public string CustomTermsText
     {
@@ -156,6 +176,7 @@ public sealed class RedactionViewModel : ObservableObject
     public ICommand OpenCommand { get; }
     public ICommand PrevPageCommand { get; }
     public ICommand NextPageCommand { get; }
+    public ICommand CopyPageTextCommand { get; }
     public ICommand ApproveAllCommand { get; }
     public ICommand ApproveNoneCommand { get; }
     public ICommand ApplyCommand { get; }
@@ -227,9 +248,14 @@ public sealed class RedactionViewModel : ObservableObject
             OnPropertyChanged(nameof(NoDocument));
             RefreshPage();
 
+            // An ID's barcode repeats the printed details (number, birth date, address) and can't be found from the text.
+            var idNote = Regions.Any(r => r.Kind is SensitiveKind.DriversLicense or SensitiveKind.Passport)
+                ? " This looks like an ID: its barcode repeats the printed details, so drag a box over the barcode too."
+                : "";
+
             Status = Regions.Count == 0
                 ? $"{Path.GetFileName(path)}: nothing sensitive was detected. Drag on a page to box anything yourself."
-                : $"{Path.GetFileName(path)}: found {Regions.Count} item(s). Review them, then save the redacted copy.";
+                : $"{Path.GetFileName(path)}: found {Regions.Count} item(s). Review them, then save the redacted copy.{idNote}";
         }
         catch (Exception ex)
         {
@@ -258,8 +284,23 @@ public sealed class RedactionViewModel : ObservableObject
         RoutingNumber = FindRouting,
         DriversLicense = FindLicense,
         Passport = FindPassport,
+        Mrn = FindMrn,
+        HealthPlanId = FindHealthPlan,
+        RxNumber = FindRx,
         CustomTerms = CustomTermsText.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
     };
+
+    /// <summary>
+    /// Copies the text the program read on the current page. When something wasn't found, this shows whether the text
+    /// reader misread it (nothing can find a number that was read wrongly) or the finder missed it.
+    /// </summary>
+    private void CopyPageText()
+    {
+        if (_pages.Count == 0) return;
+        var text = PageTextBuilder.Build(_pages[_currentPage].Words).Text;
+        CopyText?.Invoke(text);
+        Status = $"Copied the text read on page {_currentPage + 1}. It may contain the sensitive details from the page, so paste it somewhere you trust.";
+    }
 
     /// <summary>Re-runs the finder on the words already read (no new OCR). Hand-drawn boxes are kept.</summary>
     private void RebuildAutoRegions()
@@ -495,6 +536,26 @@ public sealed class RedactionViewModel : ObservableObject
                 manualNote += "\n\nThe original was password-protected, but this redacted copy is not. Protect it again before sending it if you need to.";
             if (MakeSearchable)
                 manualNote += "\n\nThe copy is searchable: the text that was not covered can be searched and copied.";
+
+            if (SaveLog)
+            {
+                try
+                {
+                    var sourcePath = _filePath;
+                    var sourceHash = await Task.Run(() => FileHasher.Sha256(sourcePath));
+                    var outputHash = await Task.Run(() => FileHasher.Sha256(outputPath));
+                    var log = RedactionLog.Create(sourcePath, sourceHash, outputPath, outputHash, DateTimeOffset.Now, AppInfo.Version,
+                        Environment.UserName, _pages.Count, Regions.ToList(), MakeSearchable, _sourceWasProtected,
+                        redactedTexts.Count, Math.Min(leaks.Count, redactedTexts.Count));
+                    var logPath = RedactionLog.LogPathFor(outputPath);
+                    await File.WriteAllTextAsync(logPath, RedactionLogWriter.ToHtml(log), new UTF8Encoding(false));
+                    manualNote += $"\n\nA redaction log was saved next to the copy: {Path.GetFileName(logPath)}";
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    manualNote += "\n\nThe redaction log could not be saved: " + ex.Message;
+                }
+            }
 
             if (leaks.Count == 0)
             {

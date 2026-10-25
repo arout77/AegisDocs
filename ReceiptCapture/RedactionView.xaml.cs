@@ -21,6 +21,12 @@ public partial class RedactionView : UserControl
         {
             ShowMessage = text => Dialogs.Info(this, text),
 
+            CopyText = text =>
+            {
+                try { Clipboard.SetText(text); }
+                catch (System.Runtime.InteropServices.ExternalException) { Dialogs.Info(this, "The clipboard is busy. Please try again."); }
+            },
+
             AskPassword = (fileName, wasWrong) => Dialogs.AskPassword(this, fileName, wasWrong),
 
             PickFile = () =>
