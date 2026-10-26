@@ -4,6 +4,7 @@ using System.Windows.Input;
 using System.Windows.Threading;
 using ReceiptCapture.Core;
 using ReceiptCapture.Core.Meetings;
+using ReceiptCapture.Core.Security;
 using ReceiptCapture.Services;
 
 namespace ReceiptCapture.ViewModels;
@@ -24,7 +25,10 @@ public sealed class MeetingsViewModel : ObservableObject, IDisposable
     private bool _autoTranscribe = true;
     private bool _closing;
     private int _transcriptionPercent;
-    private string _transcriptText = "";
+    private Transcript? _transcript;
+    private string _speakerInput = "";
+    private bool _canSuggestSpeakers;
+    private string _speakerSummary = "";
 
     private Meeting? _selected;
     private Meeting? _active;
@@ -53,6 +57,14 @@ public sealed class MeetingsViewModel : ObservableObject, IDisposable
         if (Meetings.Any(m => m.IsRecovered))
             _status = "A recording that was interrupted last time was recovered. Its audio is kept up to the moment it stopped.";
 
+        if (_store.UnreadableCount > 0)
+            _status = _store.UnreadableCount == 1
+                ? "1 saved meeting couldn't be unlocked, so it isn't shown. It hasn't been deleted."
+                : $"{_store.UnreadableCount} saved meetings couldn't be unlocked, so they aren't shown. They haven't been deleted.";
+
+        // Recordings made before locking existed, or left plain by a crash, are locked now.
+        foreach (var meeting in Meetings) SealQuietly(meeting);
+
         Microphones = new ObservableCollection<AudioDevice>(AudioDevices.GetMicrophones());
 
         _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
@@ -73,7 +85,7 @@ public sealed class MeetingsViewModel : ObservableObject, IDisposable
         OpenFolderCommand = new RelayCommand(OpenFolder, () => Selected != null);
         DeleteCommand = new RelayCommand(Delete, () => Selected != null && Selected != _active && Selected != _transcribing);
         TranscribeCommand = new RelayCommand(
-            () => { if (Selected != null) _ = TranscribeAsync(Selected); },
+            MakeTranscript,
             () => Selected != null && !Selected.IsRecording && !IsTranscribing && TranscriptionAvailable);
         CancelTranscriptionCommand = new RelayCommand(() => _transcribeCts?.Cancel(), () => IsTranscribing);
     }
@@ -95,7 +107,7 @@ public sealed class MeetingsViewModel : ObservableObject, IDisposable
             {
                 OnPropertyChanged(nameof(HasSelection));
                 OnPropertyChanged(nameof(NoSelection));
-                LoadTranscriptText();
+                LoadTranscript();
             }
         }
     }
@@ -187,12 +199,35 @@ public sealed class MeetingsViewModel : ObservableObject, IDisposable
         ? ""
         : $"Making a transcript of \"{_transcribing.Title}\"…  {TranscriptionPercent}%";
 
-    /// <summary>The selected meeting's transcript, ready to show in the Transcript tab.</summary>
-    public string TranscriptText
+    /// <summary>The selected meeting's transcript, one line per stretch of speech, for the Transcript tab.</summary>
+    public ObservableCollection<TranscriptLine> Lines { get; } = new();
+
+    /// <summary>The speaker names used in the selected meeting, for the quick-pick list.</summary>
+    public ObservableCollection<string> SpeakerNames { get; } = new();
+
+    /// <summary>The name typed or picked in the speaker box.</summary>
+    public string SpeakerInput
     {
-        get => _transcriptText;
-        private set => SetProperty(ref _transcriptText, value);
+        get => _speakerInput;
+        set => SetProperty(ref _speakerInput, value ?? "");
     }
+
+    /// <summary>True when this meeting was recorded with computer sound, so "You" and "Other participants" can be suggested.</summary>
+    public bool CanSuggestSpeakers
+    {
+        get => _canSuggestSpeakers;
+        private set => SetProperty(ref _canSuggestSpeakers, value);
+    }
+
+    /// <summary>"12 of 40 lines have a speaker", shown above the list.</summary>
+    public string SpeakerSummary
+    {
+        get => _speakerSummary;
+        private set => SetProperty(ref _speakerSummary, value);
+    }
+
+    /// <summary>True if the selected meeting has notes (the Word export asks whether to include them).</summary>
+    public bool SelectedHasNotes => Selected != null && !string.IsNullOrWhiteSpace(Selected.Notes);
 
     /// <summary>Title and full text for saving or copying the selected meeting's transcript, or null if there isn't one.</summary>
     public (string Title, string Text)? GetTranscriptExport()
@@ -345,9 +380,33 @@ public sealed class MeetingsViewModel : ObservableObject, IDisposable
         Status = $"Saved \"{meeting.Title}\" ({MeetingFormat.Duration(length)}).";
         OnRecordingStateChanged();
 
+        // Keep how loud each side of a call was, so speakers can be suggested later. Levels only, never sound.
+        if (meeting.IncludedComputerAudio && _recorder.Activity.Count > 0)
+        {
+            try { _store.SaveActivity(meeting, _recorder.Activity); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or VaultException) { /* suggestions just won't be offered */ }
+        }
+
         // Straight on to the transcript, unless the program is closing or there's too little to transcribe.
+        // Either way the recording ends up locked: right away, or when the transcript is done with it.
         if (AutoTranscribe && TranscriptionAvailable && !_closing && _transcribing == null && length.TotalSeconds >= 3)
             _ = TranscribeAsync(meeting);
+        else
+            SealQuietly(meeting);
+
+        if (Selected == meeting) UpdateSpeakerState();
+    }
+
+    /// <summary>
+    /// Locks a finished recording. If that fails the plain recording is kept (never lost) and it is tried again the next
+    /// time the program starts. Nothing happens for a meeting that is still being recorded or transcribed.
+    /// </summary>
+    private void SealQuietly(Meeting meeting)
+    {
+        if (meeting == _active || meeting == _transcribing) return;
+
+        try { _store.SealAudio(meeting); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or VaultException) { }
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -358,10 +417,15 @@ public sealed class MeetingsViewModel : ObservableObject, IDisposable
     {
         if (_transcribing != null || !TranscriptionAvailable) return;
 
-        var audio = _store.AudioPathFor(meeting);
-        if (!File.Exists(audio))
+        string audio;
+        bool audioIsTemporary;
+        try
         {
-            ShowMessage?.Invoke("The audio file for this meeting couldn't be found.");
+            audio = _store.OpenAudioForUse(meeting, AppPaths.TempDir, out audioIsTemporary);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or VaultException)
+        {
+            ShowMessage?.Invoke("The recording for this meeting couldn't be opened: " + ex.Message);
             return;
         }
 
@@ -387,7 +451,7 @@ public sealed class MeetingsViewModel : ObservableObject, IDisposable
                 _store.SaveTranscript(meeting, transcript);
                 meeting.HasTranscript = true;
                 SaveNow(meeting);
-                if (Selected == meeting) LoadTranscriptText();
+                if (Selected == meeting) LoadTranscript();
                 Status = $"Transcript ready for \"{meeting.Title}\".";
             }
         }
@@ -405,18 +469,168 @@ public sealed class MeetingsViewModel : ObservableObject, IDisposable
             _transcribeCts?.Dispose();
             _transcribeCts = null;
             _transcribing = null;
+            JsonMeetingStore.ReleaseAudio(audio, audioIsTemporary);   // the readable copy of a locked recording
+            SealQuietly(meeting);
             OnTranscribingChanged();
         }
     }
 
-    private void LoadTranscriptText()
+    // "Make transcript" / "Redo transcript". A new transcript replaces the old one, including any speaker names.
+    private void MakeTranscript()
     {
-        TranscriptText = "";
+        var meeting = Selected;
+        if (meeting == null) return;
+
+        if (meeting.HasTranscript && _transcript != null && _transcript.Segments.Any(s => s.Speaker != null))
+        {
+            var ok = Confirm?.Invoke(
+                "Making a new transcript replaces the current one, including the speaker names you added.\n\nContinue?") ?? true;
+            if (!ok) return;
+        }
+
+        _ = TranscribeAsync(meeting);
+    }
+
+    private void LoadTranscript()
+    {
+        _transcript = null;
+        Lines.Clear();
+        SpeakerNames.Clear();
+        SpeakerInput = "";
+
         if (Selected is { HasTranscript: true } meeting)
         {
-            var transcript = _store.LoadTranscript(meeting);
-            if (transcript != null) TranscriptText = TranscriptFormatter.ToText(transcript.Segments);
+            _transcript = _store.LoadTranscript(meeting);
+            if (_transcript != null)
+            {
+                for (int i = 0; i < _transcript.Segments.Count; i++)
+                {
+                    var segment = _transcript.Segments[i];
+                    Lines.Add(new TranscriptLine(i, TranscriptFormatter.TimeStamp(segment.StartSeconds), segment.Text, segment.Speaker));
+                }
+
+                SyncSpeakerNames();
+            }
         }
+
+        UpdateSpeakerState();
+        OnPropertyChanged(nameof(SelectedHasNotes));
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Speakers
+    // ---------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Gives the chosen lines this speaker (or clears them when the name is blank) and saves. Returns the line after the
+    /// last one changed, so the screen can move on to it, or -1 if there is none.
+    /// </summary>
+    public int AssignSpeaker(IReadOnlyList<int> lineIndexes, string? name)
+    {
+        if (_transcript == null || Selected == null || lineIndexes.Count == 0) return -1;
+
+        SpeakerLabels.Assign(_transcript, lineIndexes, name);
+        AfterSpeakerChange();
+
+        int next = lineIndexes.Max() + 1;
+        return next < Lines.Count ? next : -1;
+    }
+
+    public void RenameSpeaker(string from, string to)
+    {
+        if (_transcript == null || Selected == null) return;
+
+        SpeakerLabels.Rename(_transcript, from, to);
+        AfterSpeakerChange();
+    }
+
+    /// <summary>Labels lines "You" and "Other participants" from the recording's sound levels (calls recorded with computer sound).</summary>
+    public void SuggestSpeakers()
+    {
+        if (_transcript == null || Selected == null) return;
+
+        var activity = _store.LoadActivity(Selected);
+        if (activity == null || activity.Count == 0)
+        {
+            ShowMessage?.Invoke("There's no sound-level record for this meeting, so speakers can't be suggested.");
+            return;
+        }
+
+        var result = SpeakerActivityLabeler.Apply(_transcript, activity);
+        AfterSpeakerChange();
+
+        ShowMessage?.Invoke(result.Labeled == 0
+            ? "No lines could be labelled this way. Lines you've already labelled are left alone, and lines where both sides were " +
+              "talking or the sound was unclear are left blank. You can still label them by hand."
+            : $"{result.Labeled} line(s) were labelled \"{SpeakerActivityLabeler.YouLabel}\" or \"{SpeakerActivityLabeler.OthersLabel}\". " +
+              $"{result.Unclear} line(s) couldn't be told apart and were left blank.\n\n" +
+              "These are suggestions based on whether the microphone or the computer's sound was active. Please check them, " +
+              "and rename them to the real names if you like.");
+    }
+
+    private void AfterSpeakerChange()
+    {
+        if (_transcript == null || Selected == null) return;
+
+        try { _store.SaveTranscript(Selected, _transcript); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or VaultException)
+        {
+            Status = "Couldn't save the speaker names: " + ex.Message;
+        }
+
+        for (int i = 0; i < Lines.Count && i < _transcript.Segments.Count; i++)
+            Lines[i].Speaker = _transcript.Segments[i].Speaker;
+
+        SyncSpeakerNames();
+        UpdateSpeakerState();
+    }
+
+    // Keeps the quick-pick list in step without clearing it, so the text typed in the speaker box isn't lost.
+    private void SyncSpeakerNames()
+    {
+        var wanted = _transcript == null ? new List<string>() : SpeakerLabels.Names(_transcript);
+
+        for (int i = SpeakerNames.Count - 1; i >= 0; i--)
+            if (!wanted.Contains(SpeakerNames[i])) SpeakerNames.RemoveAt(i);
+
+        foreach (var name in wanted)
+            if (!SpeakerNames.Contains(name)) SpeakerNames.Add(name);
+    }
+
+    private void UpdateSpeakerState()
+    {
+        if (_transcript == null || Selected == null)
+        {
+            CanSuggestSpeakers = false;
+            SpeakerSummary = "";
+            return;
+        }
+
+        CanSuggestSpeakers = Selected.IncludedComputerAudio && _store.HasActivity(Selected);
+
+        int total = _transcript.Segments.Count;
+        int named = total - SpeakerLabels.UnlabeledCount(_transcript);
+        SpeakerSummary = named == 0
+            ? $"{total} lines. Select lines, type or pick a name, then press Apply."
+            : $"{named} of {total} lines have a speaker.";
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Saving a transcript as a file
+    // ---------------------------------------------------------------------------------------------
+
+    /// <summary>Writes the selected meeting's transcript as a Word file.</summary>
+    public void SaveWordFile(string path, bool includeNotes)
+    {
+        if (Selected == null || _transcript == null) return;
+        TranscriptDocx.Write(path, Selected, _transcript, includeNotes);
+    }
+
+    /// <summary>Saves a readable copy of the selected meeting's recording (it is kept locked in the program's own folder).</summary>
+    public void ExportAudio(string destination)
+    {
+        if (Selected == null) return;
+        _store.ExportAudio(Selected, destination);
     }
 
     private void OnTranscribingChanged()
@@ -461,22 +675,23 @@ public sealed class MeetingsViewModel : ObservableObject, IDisposable
     {
         if (Selected == null) return;
 
-        var audio = _store.AudioPathFor(Selected);
-        if (!File.Exists(audio))
+        // A locked recording is unlocked into a temporary readable copy, which is removed when the program exits.
+        try
         {
-            ShowMessage?.Invoke("The audio file for this meeting couldn't be found.");
-            return;
+            var audio = _store.OpenAudioForUse(Selected, AppPaths.TempDir, out _);
+            Process.Start(new ProcessStartInfo(audio) { UseShellExecute = true });
         }
-
-        try { Process.Start(new ProcessStartInfo(audio) { UseShellExecute = true }); }
-        catch (Exception ex) { ShowMessage?.Invoke("Couldn't open the recording: " + ex.Message); }
+        catch (Exception ex)
+        {
+            ShowMessage?.Invoke("Couldn't open the recording: " + ex.Message);
+        }
     }
 
     private void OpenFolder()
     {
         if (Selected == null) return;
 
-        var audio = _store.AudioPathFor(Selected);
+        var audio = File.Exists(_store.AudioPathFor(Selected)) ? _store.AudioPathFor(Selected) : _store.SealedAudioPathFor(Selected);
         var folder = _store.FolderFor(Selected);
         try
         {

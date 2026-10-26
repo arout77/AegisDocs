@@ -46,6 +46,9 @@ Simplify bookkeeping without exposing financial data to the cloud.
 Capture client consultations and internal discussions with complete privacy.
 * **Flexible Recording:** Record your microphone and (optionally) your computer's sound during meetings.
 * **Offline Transcripts:** Keep organized notes and let local AI generate accurate transcripts completely offline.
+* **Speaker Names:** Select lines in the transcript and give them a name ("Dr. Lee", "Client"). Rename a speaker everywhere in one step. For calls recorded with computer sound, one click suggests which lines were you and which were the other people.
+* **Save as Word or Text:** Export the transcript as a Word (.docx) file or a text file, with speaker names, times, and (if you choose) your notes.
+* **Locked on Your PC:** Receipts, meeting notes, transcripts, and recordings are stored encrypted, so a copied folder or a lost laptop doesn't give them away.
 
 ### 6. Good to Know
 Aegis Docs is a careful first pass, not a guarantee. Please keep these in mind:
@@ -56,6 +59,13 @@ Aegis Docs is a careful first pass, not a guarantee. Please keep these in mind:
 * **Hidden-content checks cover Word (.docx), PDF, JPEG, and PNG files.** Older Word files (.doc, .rtf), password-protected PDFs, and other picture types can't be looked inside, and the results say so. Save older Word files as .docx first.
 * **Cleaning changes the files it makes, not your originals.** Accepting tracked changes and deleting hidden text change a Word document's wording, and a PDF rebuilt from page pictures is larger than the original.
 * **Up to 2,000 files** are kept in one run.
+* **Saved data is locked to your Windows sign-in.** Receipts, meetings, transcripts, and recordings are encrypted (AES-256) with a key only your Windows account can open. That protects against a copied folder, a stolen drive, or another Windows user. It does not protect against someone signed in as you, or malware running as you.
+* **Locked data can't be moved to another PC or recovered if the Windows account is deleted or reset.** Export what you need to keep (transcripts, the receipts CSV, audio copies) before reinstalling Windows or changing computers.
+* **A recording is written unlocked while it is being made** (so it survives a crash) and is locked when you press Stop. Opening a locked receipt or recording makes a temporary readable copy that is removed when the program closes.
+* **Files from older versions are locked the first time you open the program.** The old plain copies are deleted, but Windows doesn't wipe the freed disk space. Turn on BitLocker (or "Reset this PC" with a full wipe) if that matters to you.
+* **Files you save are not locked.** Redacted documents, reports, exported transcripts, Word files, and audio copies go where you put them, so store them somewhere safe.
+* **Suggested speakers are guesses.** They work from whether your microphone or the computer's sound was active, so they can't separate several people on the same side, and they don't work for an in-person meeting. Lines where both sides were talking are left blank. Check them before you rely on them.
+* **Transcripts can contain mistakes.** The Word export says so at the bottom.
 * **Treat reports and logs as confidential.** Found values are partly hidden in them, but they still list your file names and where things were found.
 
 ---

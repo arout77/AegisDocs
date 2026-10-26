@@ -8,6 +8,7 @@ using System.Windows.Media;
 using ReceiptCapture.Core;
 using ReceiptCapture.Core.Export;
 using ReceiptCapture.Core.Parsing;
+using ReceiptCapture.Core.Security;
 using ReceiptCapture.Core.Storage;
 using ReceiptCapture.Services;
 using CategoryList = ReceiptCapture.Core.Categories;
@@ -50,6 +51,9 @@ public sealed class MainViewModel : ObservableObject
             loaded = new List<Receipt>();
             _status = $"Couldn't read your saved receipts: {ex.Message}";
         }
+
+        if (store is JsonReceiptStore { LoadProblem: { } loadProblem }) _status = loadProblem;
+        LockStoredFiles(loaded, store);
 
         Receipts = new ObservableCollection<Receipt>(loaded);
 
@@ -257,7 +261,7 @@ public sealed class MainViewModel : ObservableObject
                     string text = "";
                     try
                     {
-                        text = await _ocr.ExtractTextAsync(stored);
+                        text = await _ocr.ExtractTextAsync(file);   // the original: the stored copy is locked
                     }
                     catch (Exception ex)
                     {
@@ -328,9 +332,66 @@ public sealed class MainViewModel : ObservableObject
     private static string CopyIntoStore(string source, string hash)
     {
         Directory.CreateDirectory(AppPaths.ReceiptsDir);
-        var target = Path.Combine(AppPaths.ReceiptsDir, hash[..16] + Path.GetExtension(source).ToLowerInvariant());
-        File.Copy(source, target, overwrite: true);
+        // Kept locked (".aegis"), so a copied folder or a lost laptop doesn't give away the receipts.
+        var target = Path.Combine(AppPaths.ReceiptsDir,
+            hash[..16] + Path.GetExtension(source).ToLowerInvariant() + Vault.SealedSuffix);
+        AppVault.Instance.EncryptFile(source, target);
         return target;
+    }
+
+    private static bool IsInsideStore(string path)
+    {
+        var root = Path.GetFullPath(AppPaths.ReceiptsDir) + Path.DirectorySeparatorChar;
+        return Path.GetFullPath(path).StartsWith(root, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Receipt files saved by older versions of the program are plain copies. Lock them, and only remove the plain copy
+    /// once the locked one is proven to open and the receipt list pointing at it has been saved.
+    /// </summary>
+    private static void LockStoredFiles(List<Receipt> receipts, IReceiptStore store)
+    {
+        var plainCopies = new List<string>();
+
+        foreach (var receipt in receipts)
+        {
+            var path = receipt.FilePath;
+            if (string.IsNullOrEmpty(path) || Vault.IsSealedPath(path)) continue;
+
+            try
+            {
+                if (!IsInsideStore(path) || !File.Exists(path)) continue;
+
+                var sealedPath = path + Vault.SealedSuffix;
+                AppVault.Instance.EncryptFile(path, sealedPath);
+                AppVault.Instance.Verify(sealedPath);
+
+                plainCopies.Add(path);
+                receipt.FilePath = sealedPath;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or VaultException)
+            {
+                // Leave this one as it is; it is tried again next time the program starts.
+            }
+        }
+
+        if (plainCopies.Count == 0) return;
+
+        try
+        {
+            store.Save(receipts);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or VaultException)
+        {
+            return;   // the list still points at the plain copies, so keep them
+        }
+
+        foreach (var plain in plainCopies)
+        {
+            try { File.Delete(plain); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
     }
 
     // ------------------------------------------------------------------
@@ -421,7 +482,17 @@ public sealed class MainViewModel : ObservableObject
             ShowMessage?.Invoke("The original file couldn't be found.");
             return;
         }
-        Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+
+        try
+        {
+            // A locked copy is unlocked into a temporary readable file, which is removed when the program exits.
+            if (Vault.IsSealedPath(path)) path = AppVault.OpenToTemp(path);
+            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+        }
+        catch (Exception ex) when (ex is IOException or VaultException or UnauthorizedAccessException or Win32Exception)
+        {
+            ShowMessage?.Invoke("Couldn't open the original file: " + ex.Message);
+        }
     }
 
     // ------------------------------------------------------------------

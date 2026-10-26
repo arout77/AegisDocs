@@ -16,7 +16,7 @@ public partial class ReceiptsView : UserControl
     {
         InitializeComponent();
 
-        _vm = new MainViewModel(new JsonReceiptStore(AppPaths.DataFile), new WindowsOcrService())
+        _vm = new MainViewModel(new JsonReceiptStore(AppPaths.DataFile, AppVault.Instance), new WindowsOcrService())
         {
             ShowMessage = text => Dialogs.Info(this, text),
             Confirm = text => Dialogs.Confirm(this, text),

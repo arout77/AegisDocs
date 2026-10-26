@@ -2,6 +2,7 @@ using System.Diagnostics;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
+using ReceiptCapture.Core.Meetings;
 
 namespace ReceiptCapture.Services;
 
@@ -28,6 +29,7 @@ public sealed class MeetingRecorder : IDisposable
     private volatile bool _stopRequested;
     private volatile bool _paused;
     private long _samplesWritten;
+    private SpeakerActivity _activity = new();
 
     public bool IsRecording => _pump != null;
     public bool IsPaused => _paused;
@@ -37,6 +39,12 @@ public sealed class MeetingRecorder : IDisposable
 
     /// <summary>How much has been recorded (paused time is not counted).</summary>
     public TimeSpan Elapsed => TimeSpan.FromSeconds(Interlocked.Read(ref _samplesWritten) / (double)SampleRate);
+
+    /// <summary>
+    /// How loud the microphone and the computer's sound were, every half second of what was recorded. Used afterwards to
+    /// suggest who spoke which line. Only the levels are kept, never any sound.
+    /// </summary>
+    public SpeakerActivity Activity => _activity;
 
     /// <summary>Loudest recent microphone level, 0 to 1. Reading it resets it.</summary>
     public float TakeMicLevel() => _micMeter?.TakePeak() ?? 0f;
@@ -100,6 +108,7 @@ public sealed class MeetingRecorder : IDisposable
             _writer = new WaveFileWriter(wavPath, new WaveFormat(SampleRate, 16, 1));
             _stopRequested = false;
             _paused = false;
+            _activity = new SpeakerActivity();
             Interlocked.Exchange(ref _samplesWritten, 0);
 
             _mic.StartRecording();
@@ -200,6 +209,13 @@ public sealed class MeetingRecorder : IDisposable
         long taken = 0;
         var lastFlush = clock.Elapsed;
 
+        // Every half second of recorded sound, note how loud each source was (see Activity).
+        var micMeter = _micMeter;
+        var computerMeter = _computerMeter;
+        var activity = _activity;
+        int samplesPerWindow = (int)(SampleRate * SpeakerActivity.WindowSeconds);
+        long activitySamples = 0;
+
         try
         {
             while (true)
@@ -227,6 +243,13 @@ public sealed class MeetingRecorder : IDisposable
 
                     writer.Write(bytes, 0, got * 2);
                     Interlocked.Add(ref _samplesWritten, got);
+
+                    activitySamples += got;
+                    while (activitySamples >= samplesPerWindow)
+                    {
+                        activity.Add(micMeter?.TakeWindowPeak() ?? 0f, computerMeter?.TakeWindowPeak() ?? 0f);
+                        activitySamples -= samplesPerWindow;
+                    }
                 }
 
                 // Update the file's header every couple of seconds so even a crash leaves a playable recording.
@@ -275,6 +298,7 @@ public sealed class MeetingRecorder : IDisposable
     {
         private readonly ISampleProvider _source;
         private volatile float _peak;
+        private volatile float _windowPeak;   // like _peak, but read by the activity log instead of the level bars
 
         public PeakMeter(ISampleProvider source) => _source = source;
 
@@ -291,7 +315,15 @@ public sealed class MeetingRecorder : IDisposable
             }
 
             if (peak > _peak) _peak = peak;
+            if (peak > _windowPeak) _windowPeak = peak;
             return read;
+        }
+
+        public float TakeWindowPeak()
+        {
+            float p = _windowPeak;
+            _windowPeak = 0f;
+            return p;
         }
 
         public float TakePeak()

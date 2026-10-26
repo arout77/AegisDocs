@@ -264,16 +264,65 @@
                                     </Button>
                                     <Button Content="Copy" Style="{StaticResource SecondaryButton}" Margin="0,0,8,6"
                                             IsEnabled="{Binding Selected.HasTranscript}" Click="CopyTranscript_Click"/>
-                                    <Button Content="Save as text file…" Style="{StaticResource SecondaryButton}" Margin="0,0,0,6"
+                                    <Button Content="Save as text file…" Style="{StaticResource SecondaryButton}" Margin="0,0,8,6"
                                             IsEnabled="{Binding Selected.HasTranscript}" Click="SaveTranscript_Click"/>
+                                    <Button Content="Save as Word file…" Style="{StaticResource SecondaryButton}" Margin="0,0,0,6"
+                                            IsEnabled="{Binding Selected.HasTranscript}" Click="SaveWord_Click"/>
                                 </WrapPanel>
 
                                 <Grid Grid.Row="1">
-                                    <TextBox Style="{StaticResource Input}" IsReadOnly="True" AcceptsReturn="True"
-                                             TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
-                                             VerticalContentAlignment="Top" VerticalAlignment="Stretch"
-                                             Text="{Binding TranscriptText, Mode=OneWay}"
-                                             Visibility="{Binding Selected.HasTranscript, Converter={StaticResource BoolToVis}}"/>
+                                    <!-- The transcript, one line per stretch of speech, with who said it -->
+                                    <Grid Visibility="{Binding Selected.HasTranscript, Converter={StaticResource BoolToVis}}">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="*"/>
+                                        </Grid.RowDefinitions>
+
+                                        <WrapPanel Grid.Row="0" Margin="0,0,0,4">
+                                            <ComboBox IsEditable="True" MinWidth="170" Margin="0,0,8,6" VerticalContentAlignment="Center"
+                                                      ItemsSource="{Binding SpeakerNames}"
+                                                      Text="{Binding SpeakerInput, UpdateSourceTrigger=PropertyChanged}"
+                                                      ToolTip="Type a speaker's name, or pick one already used in this meeting"/>
+                                            <Button Content="Apply to selected" Style="{StaticResource PrimaryButton}" Margin="0,0,8,6"
+                                                    Click="ApplySpeaker_Click"/>
+                                            <Button Content="Clear" Style="{StaticResource SecondaryButton}" Margin="0,0,8,6"
+                                                    ToolTip="Remove the speaker from the selected lines" Click="ClearSpeaker_Click"/>
+                                            <Button Content="Rename…" Style="{StaticResource SecondaryButton}" Margin="0,0,8,6"
+                                                    ToolTip="Rename a speaker everywhere (select one of their lines first)" Click="RenameSpeaker_Click"/>
+                                            <Button Content="Suggest You / Others" Style="{StaticResource SecondaryButton}" Margin="0,0,0,6"
+                                                    ToolTip="For calls recorded with computer sound: guess which lines were you and which were the other people"
+                                                    Click="SuggestSpeakers_Click"
+                                                    Visibility="{Binding CanSuggestSpeakers, Converter={StaticResource BoolToVis}}"/>
+                                        </WrapPanel>
+
+                                        <TextBlock Grid.Row="1" Margin="0,0,0,6" TextWrapping="Wrap"
+                                                   Foreground="{DynamicResource MutedBrush}" Text="{Binding SpeakerSummary}"/>
+
+                                        <ListBox x:Name="TranscriptList" Grid.Row="2" ItemsSource="{Binding Lines}"
+                                                 SelectionMode="Extended" Background="Transparent" BorderThickness="0"
+                                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                                 HorizontalContentAlignment="Stretch">
+                                            <ListBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Grid Margin="0,2">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock Text="{Binding TimeText}" Margin="0,0,8,0"
+                                                                   Foreground="{DynamicResource MutedBrush}"/>
+                                                        <TextBlock Grid.Column="1" Text="{Binding SpeakerText}" Margin="0,0,8,0"
+                                                                   FontWeight="SemiBold" Foreground="{DynamicResource AccentTextBrush}"
+                                                                   Visibility="{Binding HasSpeaker, Converter={StaticResource BoolToVis}}"/>
+                                                        <TextBlock Grid.Column="2" Text="{Binding Text}" TextWrapping="Wrap"
+                                                                   Foreground="{DynamicResource InkBrush}"/>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ListBox.ItemTemplate>
+                                        </ListBox>
+                                    </Grid>
 
                                     <!-- No transcript yet, and this copy can make one -->
                                     <TextBlock Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
@@ -308,6 +357,8 @@
                     <WrapPanel Grid.Row="2" Margin="0,12,0,0">
                         <Button Content="Play recording" Style="{StaticResource PrimaryButton}"
                                 Command="{Binding PlayCommand}" Margin="0,0,8,8"/>
+                        <Button Content="Save audio copy…" Style="{StaticResource SecondaryButton}"
+                                Click="SaveAudio_Click" Margin="0,0,8,8"/>
                         <Button Content="Show in folder" Style="{StaticResource SecondaryButton}"
                                 Command="{Binding OpenFolderCommand}" Margin="0,0,8,8"/>
                         <Button Content="Delete" Style="{StaticResource SecondaryButton}"

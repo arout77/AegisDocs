@@ -3,6 +3,9 @@ using System.Text.RegularExpressions;
 
 namespace ReceiptCapture.Core.Meetings;
 
+/// <summary>One paragraph of a transcript: where it starts, who is speaking (if known) and what they said.</summary>
+public sealed record TranscriptTurn(double StartSeconds, string? Speaker, string Text);
+
 public static class TranscriptFormatter
 {
     // Whisper writes things like [BLANK_AUDIO], [MUSIC] or (silence) when it hears no speech.
@@ -32,15 +35,44 @@ public static class TranscriptFormatter
         return cleaned;
     }
 
-    /// <summary>One line per segment, each starting with its time: "[0:12] Good morning, everyone."</summary>
+    /// <summary>
+    /// Groups lines into paragraphs: neighbouring lines by the same named speaker become one paragraph, so a long answer
+    /// reads as one block. Lines with no speaker stay as they are, one each.
+    /// </summary>
+    public static List<TranscriptTurn> ToTurns(IEnumerable<TranscriptSegment> segments)
+    {
+        var turns = new List<TranscriptTurn>();
+        foreach (var segment in segments)
+        {
+            if (turns.Count > 0 && segment.Speaker != null &&
+                string.Equals(turns[^1].Speaker, segment.Speaker, StringComparison.OrdinalIgnoreCase))
+            {
+                var previous = turns[^1];
+                turns[^1] = previous with { Text = previous.Text + " " + segment.Text };
+            }
+            else
+            {
+                turns.Add(new TranscriptTurn(segment.StartSeconds, segment.Speaker, segment.Text));
+            }
+        }
+
+        return turns;
+    }
+
+    /// <summary>The time in brackets, as in "[0:12]".</summary>
+    public static string TimeStamp(double seconds)
+        => "[" + MeetingFormat.Duration(TimeSpan.FromSeconds(seconds)) + "]";
+
+    /// <summary>One paragraph per speaker turn, each starting with its time: "[0:12] Dana: Good morning, everyone."</summary>
     public static string ToText(IEnumerable<TranscriptSegment> segments)
     {
         var sb = new StringBuilder();
-        foreach (var segment in segments)
+        foreach (var turn in ToTurns(segments))
         {
             if (sb.Length > 0) sb.AppendLine();
-            sb.Append('[').Append(MeetingFormat.Duration(TimeSpan.FromSeconds(segment.StartSeconds))).Append("] ")
-              .Append(segment.Text);
+            sb.Append(TimeStamp(turn.StartSeconds)).Append(' ');
+            if (turn.Speaker != null) sb.Append(turn.Speaker).Append(": ");
+            sb.Append(turn.Text);
         }
 
         return sb.ToString();
@@ -53,6 +85,10 @@ public static class TranscriptFormatter
         sb.AppendLine(meeting.Title);
         sb.AppendLine("Recorded " + meeting.StartedAt.ToString("f", System.Globalization.CultureInfo.CurrentCulture));
         sb.AppendLine("Length " + meeting.DurationText);
+
+        var speakers = SpeakerLabels.Names(transcript);
+        if (speakers.Count > 0) sb.AppendLine("Speakers " + string.Join(", ", speakers));
+
         sb.AppendLine();
         sb.Append(ToText(transcript.Segments));
         return sb.ToString();

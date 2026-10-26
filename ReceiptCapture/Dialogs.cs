@@ -24,6 +24,46 @@ public static class Dialogs
         return result == MessageBoxResult.Yes;
     }
 
+    /// <summary>Asks for a line of text (such as a speaker's new name). Returns what was typed, or null if the person cancelled.</summary>
+    public static string? AskText(DependencyObject anchor, string question, string initial)
+    {
+        var owner = Window.GetWindow(anchor);
+
+        var prompt = new TextBlock { TextWrapping = TextWrapping.Wrap, MaxWidth = 360, Text = question };
+        var box = new TextBox { Margin = new Thickness(0, 10, 0, 0), MinWidth = 300, Text = initial };
+        var ok = new Button { Content = "OK", IsDefault = true, MinWidth = 84, Margin = new Thickness(0, 0, 8, 0) };
+        var cancel = new Button { Content = "Cancel", IsCancel = true, MinWidth = 84 };
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 16, 0, 0),
+            Children = { ok, cancel },
+        };
+
+        var window = new Window
+        {
+            Title = Title,
+            Content = new StackPanel { Margin = new Thickness(20), Children = { prompt, box, buttons } },
+            SizeToContent = SizeToContent.WidthAndHeight,
+            ResizeMode = ResizeMode.NoResize,
+            ShowInTaskbar = false,
+            Owner = owner,
+            WindowStartupLocation = owner != null ? WindowStartupLocation.CenterOwner : WindowStartupLocation.CenterScreen,
+        };
+
+        string? result = null;
+        ok.Click += (_, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(box.Text)) return;   // nothing typed: keep the box open
+            result = box.Text;
+            window.DialogResult = true;
+        };
+        window.Loaded += (_, _) => { box.Focus(); box.SelectAll(); };
+
+        return window.ShowDialog() == true ? result : null;
+    }
+
     /// <summary>
     /// Asks for a document's password. Returns what was typed, or null if the person cancelled.
     /// The password is only kept in memory for the job at hand.

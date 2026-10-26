@@ -1,5 +1,6 @@
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using ReceiptCapture.Core.Security;
 using Windows.Data.Pdf;
 using Windows.Storage;
 using Windows.Storage.Streams;
@@ -22,8 +23,17 @@ public static class PreviewLoader
     {
         if (string.IsNullOrEmpty(path) || !File.Exists(path)) return null;
 
+        string? temp = null;
         try
         {
+            // A locked receipt is unlocked into a short-lived copy, just long enough to draw the preview.
+            if (Vault.IsSealedPath(path))
+            {
+                var sealedPath = path;
+                temp = await Task.Run(() => AppVault.OpenToTemp(sealedPath));
+                path = temp;
+            }
+
             var extension = Path.GetExtension(path);
 
             if (extension.Equals(".pdf", StringComparison.OrdinalIgnoreCase))
@@ -35,6 +45,15 @@ public static class PreviewLoader
         catch (Exception)
         {
             // A preview is a nicety: if it can't be drawn, the pane just says "No preview".
+        }
+        finally
+        {
+            if (temp != null)
+            {
+                try { File.Delete(temp); }
+                catch (IOException) { }               // still open: it is cleared when the program exits
+                catch (UnauthorizedAccessException) { }
+            }
         }
 
         return null;

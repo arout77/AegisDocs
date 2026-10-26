@@ -1630,5 +1630,413 @@ List<WordBox> FormField(string label, string value, double labelWidth = 160, dou
     Check("MRN: reported by a HIPAA scan", rxScan.Findings.Any(f => f.Kind == SensitiveKind.Mrn), true);
 }
 
+// ---------- Encryption at rest ----------
+{
+    byte[] KeyOf(byte seed) => Enumerable.Range(0, 32).Select(i => (byte)(seed + i)).ToArray();
+    var vault = new ReceiptCapture.Core.Security.Vault(new ReceiptCapture.Core.Security.StaticKeyProvider(KeyOf(1)));
+    var otherVault = new ReceiptCapture.Core.Security.Vault(new ReceiptCapture.Core.Security.StaticKeyProvider(KeyOf(99)));
+    var rng = new Random(7);
+    byte[] Random(int n) { var b = new byte[n]; rng.NextBytes(b); return b; }
+    bool Throws(Action a) { try { a(); return false; } catch (ReceiptCapture.Core.Security.VaultException) { return true; } }
+
+    foreach (var size in new[] { 0, 1, 100, (1 << 20) - 1, 1 << 20, (1 << 20) + 1, 2 * (1 << 20), 2_600_000 })
+    {
+        var data = Random(size);
+        var sealedData = vault.Encrypt(data);
+        Check($"vault round trip, {size} bytes", vault.Decrypt(sealedData).AsSpan().SequenceEqual(data), true);
+        Check($"vault output is marked, {size} bytes", ReceiptCapture.Core.Security.Vault.IsEncrypted(sealedData), true);
+    }
+
+    var secret = System.Text.Encoding.UTF8.GetBytes("Vendor: Jones & Partners, Total 1,234.56");
+    var locked = vault.Encrypt(secret);
+    Check("vault hides the text", System.Text.Encoding.UTF8.GetString(locked).Contains("Jones"), false);
+    Check("same data locks differently each time", locked.AsSpan().SequenceEqual(vault.Encrypt(secret)), false);
+    Check("plain data isn't marked as locked", ReceiptCapture.Core.Security.Vault.IsEncrypted(secret), false);
+    Check("wrong key is refused", Throws(() => otherVault.Decrypt(locked)), true);
+
+    var tampered = (byte[])locked.Clone();
+    tampered[tampered.Length / 2] ^= 0x01;
+    Check("a changed byte is detected", Throws(() => vault.Decrypt(tampered)), true);
+
+    var big = vault.Encrypt(Random(2_600_000));
+    var cutAtChunk = big.AsSpan(0, 20 + 2 * ((1 << 20) + 16)).ToArray();   // header + exactly two whole chunks
+    Check("a file cut at a chunk boundary is detected", Throws(() => vault.Decrypt(cutAtChunk)), true);
+    Check("a file cut mid-chunk is detected", Throws(() => vault.Decrypt(big.AsSpan(0, big.Length - 5).ToArray())), true);
+    Check("header only is refused", Throws(() => vault.Decrypt(locked.AsSpan(0, 20).ToArray())), true);
+    Check("plain bytes are refused", Throws(() => vault.Decrypt(secret)), true);
+
+    var swapped = (byte[])big.Clone();
+    for (int i = 0; i < (1 << 20) + 16; i++)
+        (swapped[20 + i], swapped[20 + (1 << 20) + 16 + i]) = (swapped[20 + (1 << 20) + 16 + i], swapped[20 + i]);
+    Check("swapped chunks are detected", Throws(() => vault.Decrypt(swapped)), true);
+
+    var vaultRoot = Path.Combine(Path.GetTempPath(), "vault-test-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(vaultRoot);
+
+    // files
+    var plainFile = Path.Combine(vaultRoot, "a.bin");
+    var bigOriginal = Random(3_000_000);
+    File.WriteAllBytes(plainFile, bigOriginal);
+    var sealedFile = Path.Combine(vaultRoot, "a.bin" + ReceiptCapture.Core.Security.Vault.SealedSuffix);
+    vault.EncryptFile(plainFile, sealedFile);
+    Check("sealed file is marked", ReceiptCapture.Core.Security.Vault.IsEncryptedFile(sealedFile), true);
+    Check("plain file isn't marked", ReceiptCapture.Core.Security.Vault.IsEncryptedFile(plainFile), false);
+    Check("missing file isn't marked", ReceiptCapture.Core.Security.Vault.IsEncryptedFile(Path.Combine(vaultRoot, "nope")), false);
+    Check("the original is left alone", File.ReadAllBytes(plainFile).AsSpan().SequenceEqual(bigOriginal), true);
+    vault.Verify(sealedFile);
+    Check("verify passes on a good file", true, true);
+    var tempCopy = vault.DecryptToTempFile(sealedFile, Path.Combine(vaultRoot, "tmp"), "pdf");
+    Check("temp copy has the right extension", Path.GetExtension(tempCopy), ".pdf");
+    Check("temp copy matches the original", File.ReadAllBytes(tempCopy).AsSpan().SequenceEqual(bigOriginal), true);
+    ReceiptCapture.Core.Security.Vault.ClearFolder(Path.Combine(vaultRoot, "tmp"));
+    Check("clearing the temp folder removes the copy", File.Exists(tempCopy), false);
+    Check("a wrong key can't unlock a file", Throws(() => otherVault.DecryptToTempFile(sealedFile, Path.Combine(vaultRoot, "tmp"), "bin")), true);
+    Check("a failed unlock leaves nothing behind", Directory.GetFiles(Path.Combine(vaultRoot, "tmp")).Length, 0);
+    Check("sealed names are recognised", ReceiptCapture.Core.Security.Vault.IsSealedPath("x/abc.pdf.AEGIS"), true);
+    Check("plain names are not", ReceiptCapture.Core.Security.Vault.IsSealedPath("x/abc.pdf"), false);
+    Check("logical extension of a sealed name", ReceiptCapture.Core.Security.Vault.LogicalExtension("abc.pdf.aegis"), ".pdf");
+    Check("logical extension of a plain name", ReceiptCapture.Core.Security.Vault.LogicalExtension("abc.jpg"), ".jpg");
+
+    // text files
+    var textFile = Path.Combine(vaultRoot, "t.json");
+    ReceiptCapture.Core.Security.Vault.WriteText(vault, textFile, "{\"a\":\"héllo wörld\"}");
+    Check("text file is locked on disk", ReceiptCapture.Core.Security.Vault.IsEncryptedFile(textFile), true);
+    Check("text file reads back", ReceiptCapture.Core.Security.Vault.ReadText(vault, textFile, out var enc1), "{\"a\":\"héllo wörld\"}");
+    Check("reading reports it was locked", enc1, true);
+    File.WriteAllText(textFile, "{\"old\":true}", new System.Text.UTF8Encoding(true));
+    Check("an older plain file (with a BOM) still reads", ReceiptCapture.Core.Security.Vault.ReadText(vault, textFile, out var enc2), "{\"old\":true}");
+    Check("reading reports it was plain", enc2, false);
+    ReceiptCapture.Core.Security.Vault.WriteText(null, textFile, "plain again");
+    Check("no vault writes plain text", ReceiptCapture.Core.Security.Vault.IsEncryptedFile(textFile), false);
+
+    // receipts
+    var receiptFile = Path.Combine(vaultRoot, "receipts.json");
+    var lockedStore = new JsonReceiptStore(receiptFile, vault);
+    lockedStore.Save(new[] { new Receipt { Vendor = "Jones & Partners", Total = 12.5m } });
+    Check("receipts file is locked", ReceiptCapture.Core.Security.Vault.IsEncryptedFile(receiptFile), true);
+    Check("receipts file hides the vendor", File.ReadAllText(receiptFile).Contains("Jones"), false);
+    var reloadedReceipts = new JsonReceiptStore(receiptFile, vault).Load();
+    Check("receipts read back", reloadedReceipts.Count == 1 && reloadedReceipts[0].Vendor == "Jones & Partners" && reloadedReceipts[0].Total == 12.5m, true);
+
+    new JsonReceiptStore(receiptFile).Save(new[] { new Receipt { Vendor = "Old Plain Vendor" } });
+    var upgradeStore = new JsonReceiptStore(receiptFile, vault);
+    Check("an older plain receipts file loads", upgradeStore.Load()[0].Vendor, "Old Plain Vendor");
+    Check("and is locked by loading it", ReceiptCapture.Core.Security.Vault.IsEncryptedFile(receiptFile), true);
+    Check("with no problem reported", upgradeStore.LoadProblem, (string?)null);
+
+    var wrongKeyStore = new JsonReceiptStore(receiptFile, otherVault);
+    Check("a wrong key loads nothing", wrongKeyStore.Load().Count, 0);
+    Check("and says why", wrongKeyStore.LoadProblem?.Contains("unlocked") == true, true);
+    Check("the unreadable file is kept, not deleted", Directory.GetFiles(vaultRoot, "receipts.json.unreadable-*").Length, 1);
+    Check("the unreadable file was moved out of the way", File.Exists(receiptFile), false);
+
+    // meetings
+    var meetingsRoot = Path.Combine(vaultRoot, "meetings");
+    var lockedMeetings = new JsonMeetingStore(meetingsRoot, vault);
+    var m1 = Meeting.StartNew(new DateTime(2026, 10, 5, 9, 0, 0), true);
+    m1.Status = MeetingStatus.Completed; m1.DurationSeconds = 2; m1.Title = "Smith intake"; m1.Notes = "Client mentioned the diagnosis";
+    lockedMeetings.Save(m1);
+    Check("meeting.json is locked", ReceiptCapture.Core.Security.Vault.IsEncryptedFile(Path.Combine(lockedMeetings.FolderFor(m1), "meeting.json")), true);
+    Check("meeting.json hides the notes", File.ReadAllText(Path.Combine(lockedMeetings.FolderFor(m1), "meeting.json")).Contains("diagnosis"), false);
+
+    lockedMeetings.SaveTranscript(m1, new Transcript { Segments = { new TranscriptSegment(0, 2, "Her blood pressure is high", "Dr. Lee") }, Speakers = { "Dr. Lee" } });
+    Check("transcript.json is locked", ReceiptCapture.Core.Security.Vault.IsEncryptedFile(Path.Combine(lockedMeetings.FolderFor(m1), "transcript.json")), true);
+    var tr = lockedMeetings.LoadTranscript(m1);
+    Check("locked transcript reads back with its speaker", tr?.Segments[0].Speaker, "Dr. Lee");
+
+    var act = new SpeakerActivity(); act.Add(0.5f, 0f); act.Add(0f, 0.4f);
+    lockedMeetings.SaveActivity(m1, act);
+    Check("activity.json is locked", ReceiptCapture.Core.Security.Vault.IsEncryptedFile(Path.Combine(lockedMeetings.FolderFor(m1), "activity.json")), true);
+    Check("activity reads back", lockedMeetings.LoadActivity(m1)?.Count, (int?)2);
+    Check("activity is known to exist", lockedMeetings.HasActivity(m1), true);
+
+    var wavBytes = MakeWav(64000, true);
+    File.WriteAllBytes(lockedMeetings.AudioPathFor(m1), wavBytes);
+    Check("audio exists while plain", lockedMeetings.AudioExists(m1), true);
+    Check("sealing locks the recording", lockedMeetings.SealAudio(m1), true);
+    Check("the plain recording is gone", File.Exists(lockedMeetings.AudioPathFor(m1)), false);
+    Check("the locked recording is there", File.Exists(lockedMeetings.SealedAudioPathFor(m1)), true);
+    Check("audio still counts as existing", lockedMeetings.AudioExists(m1), true);
+    Check("the locked recording has no wav header", File.ReadAllBytes(lockedMeetings.SealedAudioPathFor(m1)).AsSpan(0, 4).SequenceEqual("RIFF"u8), false);
+    Check("sealing twice does nothing", lockedMeetings.SealAudio(m1), false);
+
+    var tempAudio = lockedMeetings.OpenAudioForUse(m1, Path.Combine(vaultRoot, "tmp2"), out var isTemp);
+    Check("opening a locked recording makes a temp copy", isTemp, true);
+    Check("the temp copy is the original recording", File.ReadAllBytes(tempAudio).AsSpan().SequenceEqual(wavBytes), true);
+    Check("the temp copy is a playable wav", WavInfo.GetDuration(tempAudio)?.TotalSeconds, (double?)2.0);
+    JsonMeetingStore.ReleaseAudio(tempAudio, isTemp);
+    Check("releasing deletes the temp copy", File.Exists(tempAudio), false);
+
+    var exported = Path.Combine(vaultRoot, "exported.wav");
+    lockedMeetings.ExportAudio(m1, exported);
+    Check("export gives back the recording", File.ReadAllBytes(exported).AsSpan().SequenceEqual(wavBytes), true);
+
+    // an older plain meeting is locked on load, and a recording left plain is found
+    var plainMeetings = new JsonMeetingStore(Path.Combine(vaultRoot, "meetings2"));
+    var old = Meeting.StartNew(new DateTime(2026, 9, 1, 9, 0, 0), false);
+    old.Status = MeetingStatus.Completed; old.Notes = "from an older version";
+    plainMeetings.Save(old);
+    plainMeetings.SaveTranscript(old, new Transcript { Segments = { new TranscriptSegment(0, 1, "old words") } });
+    File.WriteAllBytes(plainMeetings.AudioPathFor(old), wavBytes);
+    var migrating = new JsonMeetingStore(Path.Combine(vaultRoot, "meetings2"), vault);
+    Check("an older meeting loads", migrating.LoadAll()[0].Notes, "from an older version");
+    Check("and its file is now locked", ReceiptCapture.Core.Security.Vault.IsEncryptedFile(Path.Combine(migrating.FolderFor(old), "meeting.json")), true);
+    Check("an older transcript loads", migrating.LoadTranscript(old)?.Segments[0].Text, "old words");
+    Check("and is now locked", ReceiptCapture.Core.Security.Vault.IsEncryptedFile(Path.Combine(migrating.FolderFor(old), "transcript.json")), true);
+    Check("an older recording is opened in place", migrating.OpenAudioForUse(old, Path.Combine(vaultRoot, "tmp3"), out var isTemp2) == migrating.AudioPathFor(old) && !isTemp2, true);
+    Check("sealing an older recording works", migrating.SealAudio(old) && !File.Exists(migrating.AudioPathFor(old)), true);
+
+    // a crashed recording is still recovered, and can then be locked
+    var crashStore = new JsonMeetingStore(Path.Combine(vaultRoot, "meetings3"), vault);
+    var crash = Meeting.StartNew(new DateTime(2026, 10, 6, 9, 0, 0), false);
+    crashStore.Save(crash);
+    File.WriteAllBytes(crashStore.AudioPathFor(crash), MakeWav(160000, false));
+    var recovered = crashStore.LoadAll()[0];
+    Check("a crashed locked-store recording is recovered", recovered.Status, MeetingStatus.Recovered);
+    Check("with its length", recovered.DurationSeconds, 5.0);
+    Check("and can be locked afterwards", crashStore.SealAudio(recovered), true);
+
+    // another key: counted, not deleted
+    var strangerView = new JsonMeetingStore(meetingsRoot, otherVault);
+    Check("meetings locked by another key aren't loaded", strangerView.LoadAll().Count, 0);
+    Check("they are counted", strangerView.UnreadableCount, 1);
+    Check("and the folder is untouched", Directory.Exists(lockedMeetings.FolderFor(m1)), true);
+    Check("the right key still loads it", new JsonMeetingStore(meetingsRoot, vault).LoadAll().Count, 1);
+    Check("a transcript can't be read with the wrong key", strangerView.LoadTranscript(m1) == null, true);
+
+    Directory.Delete(vaultRoot, recursive: true);
+}
+
+// ---------- Speaker labels ----------
+{
+    Transcript Fresh() => new()
+    {
+        Segments =
+        {
+            new TranscriptSegment(0, 4, "Good morning."),
+            new TranscriptSegment(4, 8, "Thanks for coming in."),
+            new TranscriptSegment(8, 12, "Happy to be here."),
+            new TranscriptSegment(12, 15, "Let's begin."),
+        },
+    };
+
+    Check("normalize trims and collapses", SpeakerLabels.Normalize("  Dr.   Lee \t"), "Dr. Lee");
+    Check("normalize blank is null", SpeakerLabels.Normalize("   "), (string?)null);
+    Check("normalize null is null", SpeakerLabels.Normalize(null), (string?)null);
+    Check("normalize drops control characters", SpeakerLabels.Normalize("Ann\u0007e"), "Anne");
+    Check("normalize caps the length", SpeakerLabels.Normalize(new string('x', 200))!.Length, SpeakerLabels.MaxNameLength);
+
+    var t = Fresh();
+    Check("assign changes the chosen lines", SpeakerLabels.Assign(t, new[] { 0, 1 }, "Attorney"), 2);
+    Check("assign sets the speaker", t.Segments[1].Speaker, "Attorney");
+    Check("other lines stay unlabelled", t.Segments[2].Speaker, (string?)null);
+    Check("assign remembers the name", t.Speakers.SequenceEqual(new[] { "Attorney" }), true);
+    Check("assigning the same again changes nothing", SpeakerLabels.Assign(t, new[] { 0, 1 }, "Attorney"), 0);
+    Check("assign ignores out-of-range lines", SpeakerLabels.Assign(t, new[] { -1, 99 }, "Attorney"), 0);
+    Check("assign ignores duplicates", SpeakerLabels.Assign(t, new[] { 2, 2, 2 }, "Client"), 1);
+    Check("a different capitalisation reuses the existing name", SpeakerLabels.Assign(t, new[] { 3 }, "  attorney "), 1);
+    Check("... with the original spelling", t.Segments[3].Speaker, "Attorney");
+    Check("names list has each once", string.Join("|", SpeakerLabels.Names(t)), "Attorney|Client");
+    Check("unlabelled count", SpeakerLabels.UnlabeledCount(t), 0);
+    Check("a blank name clears the label", SpeakerLabels.Assign(t, new[] { 3 }, ""), 1);
+    Check("... leaving it unlabelled", t.Segments[3].Speaker, (string?)null);
+    Check("unlabelled count after clearing", SpeakerLabels.UnlabeledCount(t), 1);
+
+    // names used on lines but missing from the saved list still show up
+    var sneaky = Fresh();
+    sneaky.Segments[0] = sneaky.Segments[0] with { Speaker = "Visitor" };
+    Check("names include speakers used on lines", string.Join("|", SpeakerLabels.Names(sneaky)), "Visitor");
+
+    // rename and merge
+    var r = Fresh();
+    SpeakerLabels.Assign(r, new[] { 0, 2 }, "Cleint");
+    SpeakerLabels.Assign(r, new[] { 1 }, "Attorney");
+    Check("rename fixes a typo everywhere", SpeakerLabels.Rename(r, "Cleint", "Client"), 2);
+    Check("... on the lines", r.Segments[2].Speaker, "Client");
+    Check("... and in the list", string.Join("|", SpeakerLabels.Names(r)), "Client|Attorney");
+    Check("rename into an existing name merges", SpeakerLabels.Rename(r, "Attorney", "client"), 1);
+    Check("... keeping the existing spelling", r.Segments[1].Speaker, "Client");
+    Check("... with one name left", string.Join("|", SpeakerLabels.Names(r)), "Client");
+    Check("renaming a name that isn't there does nothing", SpeakerLabels.Rename(r, "Nobody", "Somebody"), 0);
+    Check("... and adds nothing", string.Join("|", SpeakerLabels.Names(r)), "Client");
+    Check("rename to a blank name does nothing", SpeakerLabels.Rename(r, "Client", " "), 0);
+    Check("renaming only the capitals works", SpeakerLabels.Rename(r, "Client", "CLIENT") > 0 && r.Segments[0].Speaker == "CLIENT", true);
+
+    var c = Fresh();
+    SpeakerLabels.Assign(c, new[] { 0, 1, 2 }, "Dana");
+    Check("clear removes a speaker from every line", SpeakerLabels.Clear(c, "dana"), 3);
+    Check("... and from the list", SpeakerLabels.Names(c).Count, 0);
+    SpeakerLabels.Assign(c, new[] { 0 }, "Dana");
+    SpeakerLabels.Clear(c, "Dana", keepName: true);
+    Check("clear can keep the name for quick picking", string.Join("|", SpeakerLabels.Names(c)), "Dana");
+
+    // saving and loading
+    var storeRoot = Path.Combine(Path.GetTempPath(), "speaker-test-" + Guid.NewGuid().ToString("N"));
+    var speakerStore = new JsonMeetingStore(storeRoot);
+    var sm = Meeting.StartNew(new DateTime(2026, 10, 7, 9, 0, 0), false);
+    speakerStore.Save(sm);
+    var labelled = Fresh();
+    SpeakerLabels.Assign(labelled, new[] { 0, 1 }, "Dr. Lee");
+    speakerStore.SaveTranscript(sm, labelled);
+    var back = speakerStore.LoadTranscript(sm)!;
+    Check("speakers survive a save", back.Segments[0].Speaker, "Dr. Lee");
+    Check("the list survives a save", string.Join("|", back.Speakers), "Dr. Lee");
+    Check("unlabelled stay unlabelled", back.Segments[3].Speaker, (string?)null);
+
+    // a transcript saved before speakers existed
+    File.WriteAllText(Path.Combine(speakerStore.FolderFor(sm), "transcript.json"),
+        "{\"Segments\":[{\"StartSeconds\":1,\"EndSeconds\":2,\"Text\":\"older words\"}],\"Model\":\"m\",\"CreatedAt\":\"2026-10-01T09:00:00\"}");
+    var older = speakerStore.LoadTranscript(sm);
+    Check("an older transcript still loads", older?.Segments[0].Text, "older words");
+    Check("with no speaker", older?.Segments[0].Speaker, (string?)null);
+    Check("and an empty speaker list", older?.Speakers.Count, (int?)0);
+    Directory.Delete(storeRoot, recursive: true);
+
+    // text output
+    var f = Fresh();
+    SpeakerLabels.Assign(f, new[] { 0 }, "Dana");
+    SpeakerLabels.Assign(f, new[] { 1, 2 }, "Sam");
+    Check("the text names the speaker", TranscriptFormatter.ToText(f.Segments).Split(Environment.NewLine)[0], "[0:00] Dana: Good morning.");
+    Check("neighbouring lines by one speaker become one paragraph", TranscriptFormatter.ToText(f.Segments).Split(Environment.NewLine)[1], "[0:04] Sam: Thanks for coming in. Happy to be here.");
+    Check("an unlabelled line keeps its own time only", TranscriptFormatter.ToText(f.Segments).Split(Environment.NewLine)[2], "[0:12] Let's begin.");
+    Check("three paragraphs in all", TranscriptFormatter.ToTurns(f.Segments).Count, 3);
+    Check("unlabelled neighbours are not merged", TranscriptFormatter.ToTurns(Fresh().Segments).Count, 4);
+    var exportTest = Meeting.StartNew(new DateTime(2026, 10, 7, 9, 0, 0), false);
+    exportTest.Title = "Intake";
+    Check("the export lists the speakers", TranscriptFormatter.ToExportText(exportTest, f).Contains("Speakers Dana, Sam"), true);
+    Check("the export has no speaker line when nobody is named", TranscriptFormatter.ToExportText(exportTest, Fresh()).Contains("Speakers"), false);
+}
+
+// ---------- Suggested speakers from the recording ----------
+{
+    var activity = new SpeakerActivity();
+    // seconds 0-4: only the microphone; 4-8: only computer sound; 8-12: both, mic far louder; 12-16: both, similar;
+    // 16-20: both, computer far louder; 20-24: silence
+    void Windows(int count, float mic, float computer) { for (int i = 0; i < count; i++) activity.Add(mic, computer); }
+    Windows(8, 0.30f, 0f);
+    Windows(8, 0f, 0.30f);
+    Windows(8, 0.40f, 0.04f);
+    Windows(8, 0.20f, 0.20f);
+    Windows(8, 0.04f, 0.40f);
+    Windows(8, 0f, 0f);
+
+    var transcript = new Transcript
+    {
+        Segments =
+        {
+            new TranscriptSegment(0.2, 3.8, "mic only"),
+            new TranscriptSegment(4.2, 7.8, "computer only"),
+            new TranscriptSegment(8, 12, "both, mic louder"),
+            new TranscriptSegment(12, 16, "both, same"),
+            new TranscriptSegment(16, 20, "both, computer louder"),
+            new TranscriptSegment(20, 24, "silence"),
+            new TranscriptSegment(500, 510, "past the end of the activity"),
+        },
+    };
+
+    var result = SpeakerActivityLabeler.Apply(transcript, activity);
+    Check("mic only is You", transcript.Segments[0].Speaker, SpeakerActivityLabeler.YouLabel);
+    Check("computer only is Other participants", transcript.Segments[1].Speaker, SpeakerActivityLabeler.OthersLabel);
+    Check("both with the mic far louder is You", transcript.Segments[2].Speaker, SpeakerActivityLabeler.YouLabel);
+    Check("both about equal is left blank", transcript.Segments[3].Speaker, (string?)null);
+    Check("both with the computer far louder is Other participants", transcript.Segments[4].Speaker, SpeakerActivityLabeler.OthersLabel);
+    Check("silence is left blank", transcript.Segments[5].Speaker, (string?)null);
+    Check("a line beyond the recorded activity is left blank", transcript.Segments[6].Speaker, (string?)null);
+    Check("labelled count", result.Labeled, 4);
+    Check("unclear count", result.Unclear, 3);
+    Check("the two names are remembered", string.Join("|", transcript.Speakers), "You|Other participants");
+
+    // hand-made labels are respected unless asked otherwise
+    var guarded = new Transcript { Segments = { new TranscriptSegment(0.2, 3.8, "mic only", "Dana") } };
+    Check("existing labels are kept", SpeakerActivityLabeler.Apply(guarded, activity).Labeled, 0);
+    Check("... and unchanged", guarded.Segments[0].Speaker, "Dana");
+    Check("they can be overwritten on request", SpeakerActivityLabeler.Apply(guarded, activity, overwrite: true).Labeled, 1);
+    Check("no activity means no labels", SpeakerActivityLabeler.Apply(new Transcript { Segments = { new TranscriptSegment(0, 1, "x") } }, new SpeakerActivity()).Labeled, 0);
+
+    Check("quantize silence", SpeakerActivity.Quantize(0f), (byte)0);
+    Check("quantize full scale", SpeakerActivity.Quantize(1f), (byte)255);
+    Check("quantize clamps above one", SpeakerActivity.Quantize(5f), (byte)255);
+    Check("a level survives quantizing closely", Math.Abs(SpeakerActivity.Level(SpeakerActivity.Quantize(0.25f)) - 0.25) < 0.01, true);
+}
+
+// ---------- Word export ----------
+{
+    var meeting = Meeting.StartNew(new DateTime(2026, 10, 8, 14, 30, 0), false);
+    meeting.Title = "Smith & Sons <intake>";
+    meeting.DurationSeconds = 725;
+    meeting.Notes = "Bring the \"signed\" form\nSecond line";
+
+    var transcript = new Transcript
+    {
+        Segments =
+        {
+            new TranscriptSegment(0, 4, "Good morning.", "Dana"),
+            new TranscriptSegment(4, 8, "Let's start with the budget.", "Dana"),
+            new TranscriptSegment(8, 12, "It's 5 < 6 & more\u0007.", "Sam"),
+            new TranscriptSegment(12, 15, "Unlabelled line."),
+        },
+        Speakers = { "Dana", "Sam" },
+    };
+
+    var invariant = System.Globalization.CultureInfo.InvariantCulture;
+    var bytes = TranscriptDocx.Build(meeting, transcript, includeNotes: false, invariant);
+    using var zip = new System.IO.Compression.ZipArchive(new MemoryStream(bytes), System.IO.Compression.ZipArchiveMode.Read);
+    string Part(string name) { using var s = new StreamReader(zip.GetEntry(name)!.Open()); return s.ReadToEnd(); }
+
+    Check("the file is a zip with the Word parts", new[] { "[Content_Types].xml", "_rels/.rels", "word/document.xml", "word/styles.xml", "word/_rels/document.xml.rels" }.All(n => zip.GetEntry(n) != null), true);
+    Check("content types come first", zip.Entries[0].FullName, "[Content_Types].xml");
+    Check("no personal properties are written", zip.Entries.Any(e => e.FullName.StartsWith("docProps")), false);
+
+    foreach (var name in new[] { "[Content_Types].xml", "_rels/.rels", "word/document.xml", "word/styles.xml", "word/_rels/document.xml.rels" })
+    {
+        bool wellFormed = true;
+        try { new System.Xml.XmlDocument().LoadXml(Part(name)); } catch (System.Xml.XmlException) { wellFormed = false; }
+        Check($"{name} is well-formed XML", wellFormed, true);
+    }
+
+    var xml = new System.Xml.XmlDocument();
+    xml.LoadXml(Part("word/document.xml"));
+    var ns = new System.Xml.XmlNamespaceManager(xml.NameTable);
+    ns.AddNamespace("w", "http://schemas.openxmlformats.org/wordprocessingml/2006/main");
+    var paragraphs = xml.SelectNodes("//w:body/w:p", ns)!.Cast<System.Xml.XmlNode>().Select(p => p.InnerText).ToList();
+
+    Check("the title is the meeting title, special characters intact", paragraphs[0], "Smith & Sons <intake>");
+    Check("the date line", paragraphs[1], "Recorded: " + meeting.StartedAt.ToString("f", invariant));
+    Check("the length line", paragraphs[2], "Length: 12:05");
+    Check("the speakers line", paragraphs[3], "Speakers: Dana, Sam");
+    Check("notes are left out when not asked for", paragraphs.Any(p => p.Contains("signed")), false);
+    Check("a Transcript heading", paragraphs.Contains("Transcript"), true);
+    Check("one speaker's neighbouring lines share a paragraph", paragraphs.Contains("[0:00] Dana: Good morning. Let's start with the budget."), true);
+    Check("stray control characters are dropped and symbols escaped", paragraphs.Contains("[0:08] Sam: It's 5 < 6 & more."), true);
+    Check("an unlabelled line has only its time", paragraphs.Contains("[0:12] Unlabelled line."), true);
+    Check("the last paragraph warns about mistakes", paragraphs[^1], TranscriptDocx.Disclaimer);
+    Check("the raw document has no unescaped ampersand", Part("word/document.xml").Contains("Smith & Sons"), false);
+    Check("speaker names are in bold runs", Part("word/document.xml").Contains("<w:b/></w:rPr><w:t xml:space=\"preserve\">Dana: </w:t>"), true);
+
+    var withNotes = TranscriptDocx.Build(meeting, transcript, includeNotes: true, invariant);
+    using var zip2 = new System.IO.Compression.ZipArchive(new MemoryStream(withNotes), System.IO.Compression.ZipArchiveMode.Read);
+    var xml2 = new System.Xml.XmlDocument();
+    using (var s = new StreamReader(zip2.GetEntry("word/document.xml")!.Open())) xml2.LoadXml(s.ReadToEnd());
+    var paragraphs2 = xml2.SelectNodes("//w:body/w:p", ns)!.Cast<System.Xml.XmlNode>().Select(p => p.InnerText).ToList();
+    Check("notes are included when asked for", paragraphs2.Contains("Bring the \"signed\" form") && paragraphs2.Contains("Second line"), true);
+    Check("under a Notes heading", paragraphs2.Contains("Notes"), true);
+
+    var blankNotes = Meeting.StartNew(new DateTime(2026, 10, 8, 14, 30, 0), false);
+    blankNotes.Title = "  ";
+    var bareBytes = TranscriptDocx.Build(blankNotes, new Transcript { Segments = { new TranscriptSegment(0, 1, "Hi") } }, includeNotes: true, invariant);
+    using var zip3 = new System.IO.Compression.ZipArchive(new MemoryStream(bareBytes), System.IO.Compression.ZipArchiveMode.Read);
+    string bare; using (var s = new StreamReader(zip3.GetEntry("word/document.xml")!.Open())) bare = s.ReadToEnd();
+    Check("a blank title gets a stand-in", bare.Contains("Meeting transcript"), true);
+    Check("no Notes heading when there are no notes", bare.Contains(">Notes<"), false);
+    Check("no Speakers line when nobody is named", bare.Contains("Speakers:"), false);
+
+    var docxPath = Path.Combine(Path.GetTempPath(), "transcript-test-" + Guid.NewGuid().ToString("N") + ".docx");
+    TranscriptDocx.Write(docxPath, meeting, transcript, includeNotes: false, invariant);
+    Check("writing to a path makes the file", File.Exists(docxPath) && new FileInfo(docxPath).Length > 500, true);
+    Check("... without leaving a temp file", File.Exists(docxPath + ".tmp"), false);
+    File.Delete(docxPath);
+    Check("Escape drops control characters", TranscriptDocx.Escape("a\u0000b\u000bc\td\ne"), "abc\td\ne");
+}
+
 Console.WriteLine($"\n{passed} passed, {failed} failed");
 return failed == 0 ? 0 : 1;
