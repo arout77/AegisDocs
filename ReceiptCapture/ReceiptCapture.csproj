@@ -12,6 +12,9 @@
     <AssemblyName>AegisDocs</AssemblyName>
     <ApplicationTitle>Aegis Docs</ApplicationTitle>
     <Product>Aegis Docs</Product>
+    <Company>Aegis Labs</Company>
+    <Authors>Aegis Labs</Authors>
+    <Copyright>Copyright (c) 2026 Aegis Labs. All rights reserved.</Copyright>
     <AssemblyTitle>Aegis Docs</AssemblyTitle>
     <Description>Aegis Docs</Description>
     <ApplicationIcon>Assets\AegisDocs.ico</ApplicationIcon>

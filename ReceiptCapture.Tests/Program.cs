@@ -9,6 +9,7 @@ using ReceiptCapture.Core.Parsing;
 using ReceiptCapture.Core.Pdf;
 using ReceiptCapture.Core.Redaction;
 using ReceiptCapture.Core.Storage;
+using ReceiptCapture.Core.Updates;
 using ReceiptCapture.Tests;
 
 int passed = 0, failed = 0;
@@ -2036,6 +2037,214 @@ List<WordBox> FormField(string label, string value, double labelWidth = 160, dou
     Check("... without leaving a temp file", File.Exists(docxPath + ".tmp"), false);
     File.Delete(docxPath);
     Check("Escape drops control characters", TranscriptDocx.Escape("a\u0000b\u000bc\td\ne"), "abc\td\ne");
+}
+
+// ---------- Auto-update: versions ----------
+{
+    Check("a plain version parses", AppVersion.TryParse("0.2.0", out var v1) && v1 == new Version(0, 2, 0, 0), true);
+    Check("a leading v is allowed", AppVersion.TryParse("v1.4.2", out var v2) && v2 == new Version(1, 4, 2, 0), true);
+    Check("four parts parse", AppVersion.TryParse("1.2.3.4", out var v3) && v3 == new Version(1, 2, 3, 4), true);
+    Check("two parts parse", AppVersion.TryParse("2.0", out var v4) && v4 == new Version(2, 0, 0, 0), true);
+    foreach (var bad in new[] { "", "  ", "1", "1.2.3.4.5", "1.2.x", "1.2.0-beta", "1..2", "-1.2", "1.2.99999999", "v", "1.2 .3" })
+        Check($"'{bad}' is rejected", AppVersion.TryParse(bad, out _), false);
+    Check("a higher version is newer", AppVersion.IsNewer("0.2.0", "0.1.0"), true);
+    Check("the same version is not newer", AppVersion.IsNewer("0.1.0", "0.1.0"), false);
+    Check("1.2 and 1.2.0 are the same", AppVersion.IsNewer("1.2.0", "1.2"), false);
+    Check("an older version is not newer", AppVersion.IsNewer("0.1.0", "0.2.0"), false);
+    Check("10 is higher than 9 (numbers, not text)", AppVersion.IsNewer("0.10.0", "0.9.0"), true);
+    Check("an unreadable version is never newer", AppVersion.IsNewer("banana", "0.1.0"), false);
+}
+
+// ---------- Auto-update: signing and manifests ----------
+{
+    var (publicKey, privateKey) = UpdateSigning.GenerateKeyPair();
+    var (otherPublic, otherPrivate) = UpdateSigning.GenerateKeyPair();
+    var goodHash = new string('a', 64);
+
+    UpdateManifest Good() => new("0.2.0", "https://updates.example.com/AegisDocs-Setup-0.2.0.exe", goodHash, 123456, "Faster scans.", false, new DateTimeOffset(2026, 10, 27, 12, 0, 0, TimeSpan.Zero));
+    bool Fails(Action a) { try { a(); return false; } catch (UpdateException) { return true; } }
+
+    var data = new byte[] { 1, 2, 3, 4, 5 };
+    var sig = UpdateSigning.Sign(data, privateKey);
+    Check("a signature checks out", UpdateSigning.Verify(data, sig, publicKey), true);
+    Check("a changed message fails", UpdateSigning.Verify(new byte[] { 1, 2, 3, 4, 6 }, sig, publicKey), false);
+    Check("another key fails", UpdateSigning.Verify(data, sig, otherPublic), false);
+    Check("a damaged signature fails", UpdateSigning.Verify(data, sig.Take(sig.Length - 1).ToArray(), publicKey), false);
+    Check("a junk public key fails quietly", UpdateSigning.Verify(data, sig, "not a key"), false);
+    Check("an empty public key fails quietly", UpdateSigning.Verify(data, sig, ""), false);
+    Check("signatures are 64 bytes", sig.Length, 64);
+
+    var file = SignedManifest.Create(Good(), privateKey);
+    var opened = SignedManifest.Open(file, publicKey);
+    Check("a signed manifest opens", opened.Version, "0.2.0");
+    Check("with its address", opened.InstallerUrl, Good().InstallerUrl);
+    Check("with its fingerprint", opened.Sha256, goodHash);
+    Check("with its size", opened.SizeBytes, 123456L);
+    Check("with its notes", opened.Notes, "Faster scans.");
+    Check("with its date", opened.ReleasedAt, (DateTimeOffset?)new DateTimeOffset(2026, 10, 27, 12, 0, 0, TimeSpan.Zero));
+    Check("another key's manifest is refused", Fails(() => SignedManifest.Open(file, otherPublic)), true);
+    Check("no public key set is refused", Fails(() => SignedManifest.Open(file, "")), true);
+    Check("signed by the wrong key is refused", Fails(() => SignedManifest.Open(SignedManifest.Create(Good(), otherPrivate), publicKey)), true);
+
+    // tamper with the signed payload: change the download address
+    var envelope = System.Text.Json.JsonDocument.Parse(file).RootElement;
+    var payloadBytes = Convert.FromBase64String(envelope.GetProperty("payload").GetString()!);
+    var evil = System.Text.Encoding.UTF8.GetString(payloadBytes).Replace("updates.example.com", "evil.example.com");
+    var tampered = "{\"payload\":\"" + Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(evil)) + "\",\"signature\":\"" + envelope.GetProperty("signature").GetString() + "\"}";
+    Check("a changed download address is refused", Fails(() => SignedManifest.Open(tampered, publicKey)), true);
+
+    Check("garbage is refused", Fails(() => SignedManifest.Open("hello", publicKey)), true);
+    Check("an empty file is refused", Fails(() => SignedManifest.Open("", publicKey)), true);
+    Check("a missing signature is refused", Fails(() => SignedManifest.Open("{\"payload\":\"AAAA\"}", publicKey)), true);
+    Check("bad base64 is refused", Fails(() => SignedManifest.Open("{\"payload\":\"!!!\",\"signature\":\"!!!\"}", publicKey)), true);
+    Check("an unsigned manifest is refused", Fails(() => SignedManifest.Open(System.Text.Json.JsonSerializer.Serialize(Good()), publicKey)), true);
+
+    // validation: nothing unsafe gets signed, and nothing unsafe is accepted
+    Check("http addresses are refused", Fails(() => SignedManifest.Create(Good() with { InstallerUrl = "http://updates.example.com/a.exe" }, privateKey)), true);
+    Check("file addresses are refused", Fails(() => SignedManifest.Create(Good() with { InstallerUrl = "file:///C:/a.exe" }, privateKey)), true);
+    Check("relative addresses are refused", Fails(() => SignedManifest.Create(Good() with { InstallerUrl = "/a.exe" }, privateKey)), true);
+    Check("a short fingerprint is refused", Fails(() => SignedManifest.Create(Good() with { Sha256 = "abc" }, privateKey)), true);
+    Check("a non-hex fingerprint is refused", Fails(() => SignedManifest.Create(Good() with { Sha256 = new string('z', 64) }, privateKey)), true);
+    Check("a zero size is refused", Fails(() => SignedManifest.Create(Good() with { SizeBytes = 0 }, privateKey)), true);
+    Check("a huge size is refused", Fails(() => SignedManifest.Create(Good() with { SizeBytes = 3L * 1024 * 1024 * 1024 }, privateKey)), true);
+    Check("a bad version is refused", Fails(() => SignedManifest.Create(Good() with { Version = "latest" }, privateKey)), true);
+    Check("an uppercase fingerprint is lowercased", SignedManifest.Open(SignedManifest.Create(Good() with { Sha256 = new string('A', 64) }, privateKey), publicKey).Sha256, new string('a', 64));
+    Check("blank notes become none", SignedManifest.Open(SignedManifest.Create(Good() with { Notes = "   " }, privateKey), publicKey).Notes, (string?)null);
+    Check("very long notes are cut", SignedManifest.Open(SignedManifest.Create(Good() with { Notes = new string('x', 9000) }, privateKey), publicKey).Notes!.Length, UpdateManifest.MaxNotesLength);
+    Check("the installer file name comes from the version", Good().InstallerFileName, "AegisDocs-Setup-0.2.0.0.exe");
+
+    // ---------- checking for an update ----------
+    var key = publicKey;
+    async Task<UpdateCheckResult> CheckWith(Func<HttpRequestMessage, HttpResponseMessage> answer, string current = "0.1.0", string url = "https://updates.example.com/latest.json", string? pub = null)
+    {
+        using var http = new HttpClient(new FakeHandler(answer));
+        return await UpdateChecker.CheckAsync(http, url, pub ?? key, current);
+    }
+
+    var available = await CheckWith(_ => FakeHandler.Ok(file));
+    Check("a newer version is available", available.Status, UpdateCheckStatus.Available);
+    Check("and carries the manifest", available.Manifest?.Version, "0.2.0");
+    Check("the same version is up to date", (await CheckWith(_ => FakeHandler.Ok(file), "0.2.0")).Status, UpdateCheckStatus.UpToDate);
+    Check("a newer installed version is up to date", (await CheckWith(_ => FakeHandler.Ok(file), "0.3.0")).Status, UpdateCheckStatus.UpToDate);
+    Check("an old manifest can't downgrade", (await CheckWith(_ => FakeHandler.Ok(file), "1.0.0")).Manifest?.Version, "0.2.0");
+
+    var notFound = await CheckWith(_ => FakeHandler.Status(System.Net.HttpStatusCode.NotFound));
+    Check("a 404 is a failure", notFound.Status, UpdateCheckStatus.Failed);
+    Check("and says what the server answered", notFound.Error!.Contains("404"), true);
+    Check("a server error is a failure", (await CheckWith(_ => FakeHandler.Status(System.Net.HttpStatusCode.InternalServerError))).Status, UpdateCheckStatus.Failed);
+    Check("a bad signature is a failure", (await CheckWith(_ => FakeHandler.Ok(file), pub: otherPublic)).Status, UpdateCheckStatus.Failed);
+    Check("garbage is a failure", (await CheckWith(_ => FakeHandler.Ok("<html>captive portal</html>"))).Status, UpdateCheckStatus.Failed);
+    Check("a network error is a failure", (await CheckWith(_ => throw new HttpRequestException("down"))).Error, "The update server couldn't be reached.");
+    Check("an oversize answer is refused", (await CheckWith(_ => FakeHandler.Ok(new byte[UpdateChecker.MaxManifestBytes + 1]))).Status, UpdateCheckStatus.Failed);
+    Check("an http address is refused without asking", (await CheckWith(_ => FakeHandler.Ok(file), url: "http://updates.example.com/latest.json")).Status, UpdateCheckStatus.Failed);
+    Check("no address is refused", (await CheckWith(_ => FakeHandler.Ok(file), url: "")).Error, "Updates aren't set up in this build.");
+    Check("an unreadable own version is refused", (await CheckWith(_ => FakeHandler.Ok(file), current: "dev")).Status, UpdateCheckStatus.Failed);
+
+    var cancelled = new CancellationTokenSource(); cancelled.Cancel();
+    bool threw = false;
+    try { using var http = new HttpClient(new FakeHandler(_ => FakeHandler.Ok(file))); await UpdateChecker.CheckAsync(http, "https://updates.example.com/latest.json", key, "0.1.0", cancelled.Token); }
+    catch (OperationCanceledException) { threw = true; }
+    Check("cancelling is passed on, not reported as a failure", threw, true);
+
+    // ---------- downloading ----------
+    var folder = Path.Combine(Path.GetTempPath(), "update-test-" + Guid.NewGuid().ToString("N"));
+    var installer = new byte[700_000]; new Random(3).NextBytes(installer);
+    string HashOf(byte[] b) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(b)).ToLowerInvariant();
+    UpdateManifest For(byte[] b) => Good() with { Sha256 = HashOf(b), SizeBytes = b.Length };
+
+    var seen = new List<double>();
+    var requests = new FakeHandler(_ => FakeHandler.Ok(installer));
+    using (var http = new HttpClient(requests))
+    {
+        var savedPath = await UpdateChecker.DownloadAsync(http, For(installer), folder, new Progress<double>(seen.Add));
+        await Task.Delay(50);
+        Check("the download is saved under the safe name", Path.GetFileName(savedPath), "AegisDocs-Setup-0.2.0.0.exe");
+        Check("with the right contents", File.ReadAllBytes(savedPath).AsSpan().SequenceEqual(installer), true);
+        Check("progress reaches 100%", seen.Count > 0 && Math.Abs(seen.Max() - 1.0) < 1e-9, true);
+        Check("progress never goes backwards", seen.Zip(seen.Skip(1), (a, b) => b >= a).All(x => x), true);
+        Check("no partial file is left", File.Exists(savedPath + ".part"), false);
+
+        var again = await UpdateChecker.DownloadAsync(http, For(installer), folder);
+        Check("a complete matching download is reused", requests.Requests.Count, 1);
+        Check("and returned", again, savedPath);
+    }
+
+    using (var http = new HttpClient(new FakeHandler(_ => FakeHandler.Ok(installer.Select(b => (byte)(b ^ 1)).ToArray()))))
+    {
+        var other = Path.Combine(folder, "wrong-hash");
+        Check("a wrong fingerprint is refused", await ThrowsUpdate(() => UpdateChecker.DownloadAsync(http, For(installer), other)), true);
+        Check("nothing is kept after a wrong fingerprint", Directory.GetFiles(other).Length, 0);
+    }
+
+    using (var http = new HttpClient(new FakeHandler(_ => FakeHandler.Ok(installer.Concat(new byte[10]).ToArray()))))
+    {
+        var other = Path.Combine(folder, "too-big");
+        Check("a download bigger than promised is refused", await ThrowsUpdate(() => UpdateChecker.DownloadAsync(http, For(installer), other)), true);
+        Check("nothing is kept after a download that was too big", Directory.GetFiles(other).Length, 0);
+    }
+
+    using (var http = new HttpClient(new FakeHandler(_ => FakeHandler.Ok(installer.Take(installer.Length - 1).ToArray()))))
+    {
+        var other = Path.Combine(folder, "too-small");
+        Check("a download smaller than promised is refused", await ThrowsUpdate(() => UpdateChecker.DownloadAsync(http, For(installer), other)), true);
+        Check("nothing is kept after a short download", Directory.GetFiles(other).Length, 0);
+    }
+
+    using (var http = new HttpClient(new FakeHandler(_ => FakeHandler.Status(System.Net.HttpStatusCode.Forbidden))))
+        Check("a refused download is reported", await ThrowsUpdate(() => UpdateChecker.DownloadAsync(http, For(installer), Path.Combine(folder, "refused"))), true);
+
+    using (var http = new HttpClient(new FakeHandler(_ => throw new HttpRequestException("down"))))
+        Check("a network failure is reported", await ThrowsUpdate(() => UpdateChecker.DownloadAsync(http, For(installer), Path.Combine(folder, "offline"))), true);
+
+    // a damaged earlier download is replaced, not trusted
+    var repair = Path.Combine(folder, "repair");
+    Directory.CreateDirectory(repair);
+    File.WriteAllBytes(Path.Combine(repair, "AegisDocs-Setup-0.2.0.0.exe"), new byte[installer.Length]);
+    using (var http = new HttpClient(new FakeHandler(_ => FakeHandler.Ok(installer))))
+    {
+        var fixedPath = await UpdateChecker.DownloadAsync(http, For(installer), repair);
+        Check("a damaged earlier download is replaced", File.ReadAllBytes(fixedPath).AsSpan().SequenceEqual(installer), true);
+    }
+
+    // an unsafe manifest never reaches the network
+    var calls = new FakeHandler(_ => FakeHandler.Ok(installer));
+    using (var http = new HttpClient(calls))
+    {
+        Check("an unsafe manifest is refused before downloading", await ThrowsUpdate(() => UpdateChecker.DownloadAsync(http, For(installer) with { InstallerUrl = "http://x/y.exe" }, Path.Combine(folder, "unsafe"))), true);
+        Check("and nothing was requested", calls.Requests.Count, 0);
+    }
+
+    Directory.Delete(folder, recursive: true);
+
+    async Task<bool> ThrowsUpdate(Func<Task> action)
+    {
+        try { await action(); return false; }
+        catch (UpdateException) { return true; }
+    }
+}
+
+// ---------- Auto-update: settings ----------
+{
+    var settingsPath = Path.Combine(Path.GetTempPath(), "upd-settings-" + Guid.NewGuid().ToString("N"), "updates.json");
+    var fresh = UpdateSettings.Load(settingsPath);
+    Check("settings default to checking automatically", fresh.AutoCheck, true);
+    Check("with no previous check", fresh.LastCheck, (DateTimeOffset?)null);
+    Check("a first check is due", fresh.IsCheckDue(DateTimeOffset.Now, TimeSpan.FromHours(24)), true);
+
+    var now = new DateTimeOffset(2026, 10, 27, 12, 0, 0, TimeSpan.Zero);
+    fresh.AutoCheck = false; fresh.LastCheck = now; fresh.SkippedVersion = "0.2.0";
+    fresh.Save(settingsPath);
+    var back = UpdateSettings.Load(settingsPath);
+    Check("settings round trip: auto check", back.AutoCheck, false);
+    Check("settings round trip: last check", back.LastCheck, (DateTimeOffset?)now);
+    Check("settings round trip: skipped version", back.SkippedVersion, "0.2.0");
+    Check("a recent check isn't due", back.IsCheckDue(now.AddHours(5), TimeSpan.FromHours(24)), false);
+    Check("an old check is due", back.IsCheckDue(now.AddHours(25), TimeSpan.FromHours(24)), true);
+    Check("a check dated in the future is treated as due", back.IsCheckDue(now.AddDays(-2), TimeSpan.FromHours(24)), true);
+
+    File.WriteAllText(settingsPath, "{ not json");
+    Check("a damaged settings file falls back to the defaults", UpdateSettings.Load(settingsPath).AutoCheck, true);
+    Directory.Delete(Path.GetDirectoryName(settingsPath)!, recursive: true);
 }
 
 Console.WriteLine($"\n{passed} passed, {failed} failed");

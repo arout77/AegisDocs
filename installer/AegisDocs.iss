@@ -14,8 +14,16 @@
 AppId={{6F0B7C52-3D4E-4A8B-9C1F-5E2A7B8D4C19}
 AppName={#AppName}
 AppVersion={#AppVersion}
-; TODO: put your company / your name here (it shows in "Installed apps" and on the installer).
-AppPublisher=Aegis Docs
+AppPublisher=Aegis Labs
+AppCopyright=Copyright (C) 2026 Aegis Labs. All rights reserved.
+VersionInfoCompany=Aegis Labs
+VersionInfoDescription={#AppName} Setup
+VersionInfoCopyright=Copyright (C) 2026 Aegis Labs. All rights reserved.
+; The license the person must accept before installing.
+LicenseFile=..\LICENSE.txt
+; Aegis Labs artwork on the wizard's welcome page (large) and page headers (small).
+WizardImageFile=assets\wizard-large.bmp
+WizardSmallImageFile=assets\wizard-small.bmp
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
@@ -42,6 +50,8 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; Flags: unchecked
 [Files]
 ; The whole published folder: the exe, the speech engine (runtimes) and the speech model (models).
 Source: "..\publish\*"; DestDir: "{app}"; Excludes: "*.pdb"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"
@@ -49,3 +59,11 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
+; The program's own updater runs this installer silently with /UPDATED=1: reopen the program when it finishes.
+Filename: "{app}\{#AppExe}"; Flags: nowait; Check: StartedByUpdater
+
+[Code]
+function StartedByUpdater: Boolean;
+begin
+  Result := ExpandConstant('{param:UPDATED|0}') = '1';
+end;

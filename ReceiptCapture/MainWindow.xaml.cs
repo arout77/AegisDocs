@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Input;
+using ReceiptCapture.Services;
 
 namespace ReceiptCapture;
 
@@ -25,7 +26,41 @@ public partial class MainWindow : Window
 
         Closing += OnClosing;
 
+        // A quiet look for a new version once the window is up. The Updates button changes if one is found.
+        Updater.StateChanged += UpdateUpdateButton;
+        Closed += (_, _) => Updater.StateChanged -= UpdateUpdateButton;
+        Loaded += async (_, _) =>
+        {
+            try { await Updater.CheckInBackgroundAsync(); }
+            catch (Exception) { /* an update check is a nicety: it must never get in the way of the program */ }
+        };
+
         UpdateThemeButton();
+        UpdateUpdateButton();
+    }
+
+    /// <summary>
+    /// Gets the program ready to close so an update can be installed. If a meeting is being recorded, asks first and then
+    /// stops and saves it. Returns false if the person said no.
+    /// </summary>
+    public bool PrepareToClose()
+    {
+        if (!MeetingsTab.IsRecording) return true;
+
+        if (!Dialogs.Confirm(this, "A meeting is still being recorded.\n\nStop recording, save it, and install the update?"))
+            return false;
+
+        MeetingsTab.StopForExit();
+        return true;
+    }
+
+    private void UpdateButton_Click(object sender, RoutedEventArgs e) => new UpdateDialog(this).ShowDialog();
+
+    private void UpdateUpdateButton()
+    {
+        bool waiting = Updater.IsUpdateWaiting;
+        UpdateButton.Content = waiting ? "Update available" : "Updates";
+        UpdateButton.Style = (Style)FindResource(waiting ? "PrimaryButton" : "SecondaryButton");
     }
 
     // Never lose a meeting: if one is being recorded, ask first, then stop and save it before the app closes.

@@ -1,0 +1,57 @@
+AEGIS DOCS END USER LICENSE AGREEMENT
+
+Copyright (c) 2026 Aegis Labs. All rights reserved.
+
+Please read this agreement. By installing or using Aegis Docs (the "Software") you agree to it. If you do not agree, do not install or use the Software.
+
+"Aegis Labs", "we" and "us" mean [[FILL IN: Aegis Labs' full legal name, for example "Aegis Labs, LLC"]]. "You" means the person or organization that installs or uses the Software.
+
+1. LICENSE
+We grant you a limited, non-exclusive, non-transferable, revocable license to install and use the Software on computers that you own or control, for your own internal personal or business purposes, for the number of users and computers covered by the license you obtained from us.
+
+2. WHAT YOU MAY NOT DO
+You may not, and may not allow anyone else to:
+(a) copy the Software except for ordinary backups and the installations this license covers;
+(b) sell, rent, lease, lend, sublicense, distribute or otherwise make the Software available to anyone else;
+(c) offer the Software, or its features, to others as a hosted or online service;
+(d) modify the Software, or create works based on it;
+(e) reverse engineer, decompile or disassemble the Software, or try to get at its source code, except to the extent the law gives you that right despite this restriction;
+(f) remove or change any copyright, trademark or other notice in the Software;
+(g) bypass or interfere with any license, security or update-verification feature of the Software.
+
+3. OWNERSHIP
+The Software is licensed, not sold. We and our licensors own all rights in the Software, including all intellectual property rights, and we keep every right that is not expressly granted to you. This agreement does not give you any right to our names or logos.
+
+You own your documents, receipts, recordings, transcripts and other content (your "Content"). We do not claim any rights in it.
+
+4. YOUR CONTENT AND PRIVACY
+The Software works on your computer. Your Content is processed and stored on your computer, and we do not receive, store or have access to it.
+
+The Software can check for updates. When it does, it asks our update server for one small information file, and it downloads a new version only if you choose to install it. A request like this reveals to the server the same technical information every internet request does (such as your internet address) and the version number of the Software. It does not include your Content. You can turn off the automatic check in the Updates window.
+
+5. YOUR RESPONSIBILITIES
+(a) Backups. You are responsible for keeping your own backups. The Software locks the data it stores using a key tied to your Windows account. If that account is deleted or reset, or you move to another computer without exporting your data first, locked data cannot be recovered, by you or by us.
+(b) Check the results. Redaction, the compliance scanner, document tools, speech-to-text transcripts, suggested speaker names and receipt reading are aids. They can make mistakes and can miss things. You must review their output before you rely on it, share it or file it.
+(c) No professional advice and no guarantee of compliance. The Software does not provide legal, medical, tax, accounting or compliance advice. Using it does not make you compliant with any law, regulation, standard or contract (for example HIPAA, PCI DSS or GLBA), and you remain solely responsible for your own compliance.
+(d) Lawful use. You are responsible for having the right to record, transcribe and process the content you use the Software with, including getting any consent that the law requires before recording a conversation.
+
+6. UPDATES
+We may offer updates. An update that you install is part of the Software and is covered by this agreement. We have no obligation to provide updates, support or maintenance unless we agree to that in writing.
+
+7. THIRD-PARTY COMPONENTS
+The Software includes third-party components, some of them open source, that are licensed to you under their own terms. They are listed in the file THIRD-PARTY-NOTICES.md that is installed with the Software. Nothing in this agreement limits your rights under those terms.
+
+8. TERM AND ENDING
+This agreement lasts until it is ended. You may end it at any time by uninstalling the Software and deleting all copies. It ends automatically, without notice, if you break it. When it ends you must stop using the Software and delete all copies. Sections 2, 3, 5, 9, 10, 11 and 12 continue after it ends.
+
+9. NO WARRANTY
+TO THE FULLEST EXTENT THE LAW ALLOWS, THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITH ALL FAULTS, AND WE AND OUR LICENSORS DISCLAIM ALL WARRANTIES, WHETHER EXPRESS, IMPLIED OR STATUTORY, INCLUDING ANY WARRANTY OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, ACCURACY, TITLE AND NON-INFRINGEMENT. WE DO NOT WARRANT THAT THE SOFTWARE WILL BE ERROR-FREE, UNINTERRUPTED OR SECURE, OR THAT IT WILL FIND, REDACT OR CORRECTLY TRANSCRIBE ALL CONTENT.
+
+10. LIMIT OF LIABILITY
+TO THE FULLEST EXTENT THE LAW ALLOWS, AEGIS LABS AND ITS LICENSORS WILL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, EXEMPLARY OR PUNITIVE DAMAGES, OR FOR ANY LOSS OF PROFITS, REVENUE, DATA, GOODWILL OR BUSINESS, OR FOR THE COST OF REPLACEMENT GOODS OR SERVICES, ARISING OUT OF OR RELATED TO THIS AGREEMENT OR THE SOFTWARE, EVEN IF WE HAVE BEEN TOLD THEY ARE POSSIBLE. OUR TOTAL LIABILITY FOR ALL CLAIMS RELATED TO THE SOFTWARE WILL NOT EXCEED THE GREATER OF THE AMOUNT YOU PAID US FOR THE SOFTWARE IN THE TWELVE MONTHS BEFORE THE CLAIM AND US$100. Some places do not allow these limits, so they may not apply to you in full.
+
+11. GENERAL
+This agreement is the entire agreement between you and us about the Software and replaces any earlier understanding about it. If part of it cannot be enforced, the rest still applies. If we do not enforce a right, we have not given it up. You may not transfer this agreement or the license without our written consent; we may transfer it to a successor to our business. This agreement is governed by the laws of [[FILL IN: state or country]], without regard to its conflict-of-laws rules, and the courts located in [[FILL IN: county, state or country]] have exclusive jurisdiction over any dispute about it, except that either of us may ask any court for an order to protect intellectual property rights.
+
+12. CONTACT
+Aegis Labs, [[FILL IN: contact email address]]

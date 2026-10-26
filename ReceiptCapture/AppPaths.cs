@@ -13,6 +13,12 @@ public static class AppPaths
     public static string LogFile => Path.Combine(DataDir, "error.log");
     public static string SettingsFile => Path.Combine(DataDir, "settings.json");
 
+    /// <summary>Where downloaded update installers wait. Emptied each time the program starts.</summary>
+    public static string UpdatesDir => Path.Combine(DataDir, "updates");
+
+    /// <summary>The person's update choices (check automatically, skipped version, last check).</summary>
+    public static string UpdateSettingsFile => Path.Combine(DataDir, "updates.json");
+
     /// <summary>The secret key that locks the saved data, itself locked to this Windows login.</summary>
     public static string KeyFile => Path.Combine(DataDir, "key.bin");
 

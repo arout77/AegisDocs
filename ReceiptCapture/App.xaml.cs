@@ -11,6 +11,7 @@ public partial class App : Application
         DispatcherUnhandledException += OnUnhandledException;
         AppTheme.Initialize();   // pick light/dark before the first window appears
         Vault.ClearFolder(AppPaths.TempDir);   // readable copies left behind by a crash or a viewer that was still open
+        Vault.ClearFolder(AppPaths.UpdatesDir);   // installers from an update that has since been installed
         base.OnStartup(e);
     }
 

@@ -69,10 +69,10 @@ Aegis Docs is a careful first pass, not a guarantee. Please keep these in mind:
 * **Treat reports and logs as confidential.** Found values are partly hidden in them, but they still list your file names and where things were found.
 
 ---
-**🔒 100% Private & Local:** Nothing ever leaves your PC.
+**🔒 Private & Local:** Your documents, receipts, and recordings never leave your PC. The only internet use is the optional update check (one small file, nothing from your documents), which can be turned off in the Updates window.
 ---
 
-** A signed installer will be provided soon. If you wish to install an unsigned version, or run a portable version that requires no install, click on "Actions" in the menu above, then click on the most recent deployment in the Workflow (usually the very first one listed), and scroll to the bottom of the page. Download "AegisDocs-Setup" for the installer (you'll need this in order to receive updates), or "AegisDocs-portable" to skip install and test it out. Otherwise, follow the instructions below to run the program.
+** A signed installer will be provided soon. If you wish to install an unsigned version, or run a portable version that requires no install, click on "Actions" in the menu above, then click on the most recent deployment in the Workflow (usually the very first one listed), and scroll to the bottom of the page. Download "AegisDocs-Setup" for the installer (installed copies can then update themselves), or "AegisDocs-portable" to skip install and test it out. Otherwise, follow the instructions below to run the program.
 
 #### Note: Either way, Windows will issue a warning about using software downloaded from the internet. This is because the application is not yet signed and that automatically triggers the Windows protection. You can safely ignore the warning and run the program by clicking "More info" and then "Run anyway" button in the Windows alert box.
 
@@ -87,6 +87,27 @@ Windows 10/11 PC without installing .NET. Keep the whole `publish` folder togeth
 folders next to the exe are needed for meeting transcripts. The first run downloads the speech model
 (about 180 MB), so it needs an internet connection that one time.
 
+
+## Updates
+The **Updates** button (top right) shows the version and checks for a newer one. On start-up the program also checks, at most once a day, unless the person turns that off in the Updates window. A new version is never installed without the person pressing **Install and restart**.
+
+How it stays safe: the check downloads one small file (`latest.json`). It is only believed if it was signed with your private key (the program holds only the matching public key). The installer it points to is only run if its size and SHA-256 fingerprint match what you signed, so a hacked web server can't push a fake update. Nothing from the person's documents is sent.
+
+### One-time setup
+1. On your PC, make the signing keys: `dotnet run --project tools/UpdateSigner -- keygen`. It prints a public key and a private key.
+2. In GitHub: Settings, Secrets and variables, Actions, **New repository secret** named `UPDATE_SIGNING_KEY`, with the private key. Also keep a copy in a password manager: if it is lost, installed copies can no longer be updated automatically.
+3. Put the public key and the web address of `latest.json` in `ReceiptCapture/Services/UpdateConfig.cs`.
+4. In GitHub: Settings, Secrets and variables, Actions, Variables, **New repository variable** named `UPDATE_BASE_URL`: the https folder where you will host installers (for example `https://updates.example.com/aegisdocs`).
+
+Until steps 3 and 4 are done, the Updates window says updates aren't set up.
+
+### Releasing a version
+1. Push a tag such as `v0.2.0`. The workflow builds the installer with that version number and a signed `latest.json` (the `AegisDocs-update` download, also attached to the GitHub Release). Builds that aren't from a tag are always numbered 0.1.0, so only tagged builds are for customers.
+2. Upload the installer (`AegisDocs-Setup-0.2.0.exe`) to `UPDATE_BASE_URL`, then upload `latest.json` to the address from step 3 of the setup. Upload the installer first and `latest.json` last, so nobody is offered an installer that isn't there yet.
+3. Installed copies offer the update within a day, or straight away from the Updates button.
+
+## License
+Aegis Docs is proprietary software. Copyright (c) 2026 Aegis Labs. All rights reserved. The license (`LICENSE.txt`) is shown, and must be accepted, when installing. It has three `[[FILL IN: ...]]` blanks (the company's legal name, the governing law, and a contact email); tag builds stop until they are filled in. Have a lawyer read it before you sell the program.
 
 ## Run the tests
 `dotnet run --project ReceiptCapture.Tests -c Release`
