@@ -72,6 +72,8 @@ Aegis Docs is a careful first pass, not a guarantee. Please keep these in mind:
 **🔒 Private & Local:** Your documents, receipts, and recordings never leave your PC. The only internet use is the optional update check (one small file, nothing from your documents), which can be turned off in the Updates window.
 ---
 
+<div id="install">
+
 ** A signed installer will be provided soon. If you wish to install an unsigned version, or run a portable version that requires no install, click on "Actions" in the menu above, then click on the most recent deployment in the Workflow (usually the very first one listed), and scroll to the bottom of the page. Download "AegisDocs-Setup" for the installer (installed copies can then update themselves), or "AegisDocs-portable" to skip install and test it out. Otherwise, follow the instructions below to run the program.
 
 #### Note: Either way, Windows will issue a warning about using software downloaded from the internet. This is because the application is not yet signed and that automatically triggers the Windows protection. You can safely ignore the warning and run the program by clicking "More info" and then "Run anyway" button in the Windows alert box.
@@ -87,6 +89,7 @@ Windows 10/11 PC without installing .NET. Keep the whole `publish` folder togeth
 folders next to the exe are needed for meeting transcripts. The first run downloads the speech model
 (about 180 MB), so it needs an internet connection that one time.
 
+</div>
 
 ## Updates
 The **Updates** button (top right) shows the version and checks for a newer one. On start-up the program also checks, at most once a day, unless the person turns that off in the Updates window. A new version is never installed without the person pressing **Install and restart**.
