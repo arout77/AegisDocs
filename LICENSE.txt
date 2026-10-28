@@ -4,7 +4,7 @@ Copyright (c) 2026 Aegis Labs. All rights reserved.
 
 Please read this agreement. By installing or using Aegis Docs (the "Software") you agree to it. If you do not agree, do not install or use the Software.
 
-"Aegis Labs", "we" and "us" mean [[FILL IN: Aegis Labs' full legal name, for example "Aegis Labs, LLC"]]. "You" means the person or organization that installs or uses the Software.
+"Aegis Labs", "we" and "us" mean Aegis Labs. "You" means the person or organization that installs or uses the Software.
 
 1. LICENSE
 We grant you a limited, non-exclusive, non-transferable, revocable license to install and use the Software on computers that you own or control, for your own internal personal or business purposes, for the number of users and computers covered by the license you obtained from us.
@@ -51,7 +51,7 @@ TO THE FULLEST EXTENT THE LAW ALLOWS, THE SOFTWARE IS PROVIDED "AS IS" AND "AS A
 TO THE FULLEST EXTENT THE LAW ALLOWS, AEGIS LABS AND ITS LICENSORS WILL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, EXEMPLARY OR PUNITIVE DAMAGES, OR FOR ANY LOSS OF PROFITS, REVENUE, DATA, GOODWILL OR BUSINESS, OR FOR THE COST OF REPLACEMENT GOODS OR SERVICES, ARISING OUT OF OR RELATED TO THIS AGREEMENT OR THE SOFTWARE, EVEN IF WE HAVE BEEN TOLD THEY ARE POSSIBLE. OUR TOTAL LIABILITY FOR ALL CLAIMS RELATED TO THE SOFTWARE WILL NOT EXCEED THE GREATER OF THE AMOUNT YOU PAID US FOR THE SOFTWARE IN THE TWELVE MONTHS BEFORE THE CLAIM AND US$100. Some places do not allow these limits, so they may not apply to you in full.
 
 11. GENERAL
-This agreement is the entire agreement between you and us about the Software and replaces any earlier understanding about it. If part of it cannot be enforced, the rest still applies. If we do not enforce a right, we have not given it up. You may not transfer this agreement or the license without our written consent; we may transfer it to a successor to our business. This agreement is governed by the laws of [[FILL IN: state or country]], without regard to its conflict-of-laws rules, and the courts located in [[FILL IN: county, state or country]] have exclusive jurisdiction over any dispute about it, except that either of us may ask any court for an order to protect intellectual property rights.
+This agreement is the entire agreement between you and us about the Software and replaces any earlier understanding about it. If part of it cannot be enforced, the rest still applies. If we do not enforce a right, we have not given it up. You may not transfer this agreement or the license without our written consent; we may transfer it to a successor to our business. This agreement is governed by the laws of the United States of America, without regard to its conflict-of-laws rules, and the courts located in the United States of America have exclusive jurisdiction over any dispute about it, except that either of us may ask any court for an order to protect intellectual property rights.
 
 12. CONTACT
-Aegis Labs, [[FILL IN: contact email address]]
+Aegis Labs, arout@rhapsodyframework.com

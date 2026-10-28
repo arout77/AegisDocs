@@ -3,7 +3,7 @@
 ; the version number in with /DAppVersion=...  You can also compile it by hand with Inno Setup.
 
 #ifndef AppVersion
-  #define AppVersion "0.1.0"
+  #define AppVersion "1.0.0"
 #endif
 
 #define AppName "Aegis Docs"
