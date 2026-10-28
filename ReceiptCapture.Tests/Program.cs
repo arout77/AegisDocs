@@ -2838,8 +2838,12 @@ List<WordBox> FormField(string label, string value, double labelWidth = 160, dou
     var walkManifest = ReceiptCapture.Core.Integrity.IntegrityChecker.Create(walkRoot, "t", "u", DateTimeOffset.UtcNow);
     Check("a manifest records hidden files", walkManifest.Entries.Any(e => e.Path == ".hidden.txt"), true);
     Check("and system files", walkManifest.Entries.Any(e => e.Path == "sub/system.dat"), true);
+
+    // Overwriting a hidden file fails on Windows, so clear the attribute first
+    try { File.SetAttributes(hiddenFile, FileAttributes.Normal); } catch (Exception) { }
     File.WriteAllText(hiddenFile, "H");
     try { File.SetAttributes(hiddenFile, FileAttributes.Hidden); } catch (Exception) { }
+
     var walkCheck = ReceiptCapture.Core.Integrity.IntegrityChecker.Verify(walkManifest, walkRoot);
     Check("a change to a hidden file is caught", walkCheck.Items.First(i => i.Path == ".hidden.txt").Status, ReceiptCapture.Core.Integrity.VerifyStatus.Changed);
 
