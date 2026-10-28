@@ -2247,5 +2247,605 @@ List<WordBox> FormField(string label, string value, double labelWidth = 160, dou
     Directory.Delete(Path.GetDirectoryName(settingsPath)!, recursive: true);
 }
 
+// >>> shredder
+// ---------- Secure file shredder ----------
+{
+    var work = Path.Combine(Path.GetTempPath(), "shred-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(work);
+
+    // Overwriting keeps the size but replaces the content.
+    var big = Path.Combine(work, "big.bin");
+    var origBytes = new byte[3 * 1024 * 1024 + 123];
+    for (int i = 0; i < origBytes.Length; i++) origBytes[i] = (byte)(i * 31 + 7);
+    File.WriteAllBytes(big, origBytes);
+    ReceiptCapture.Core.Security.FileShredder.OverwriteInPlace(big, 2);
+    var after = File.ReadAllBytes(big);
+    Check("overwrite keeps the file size", after.Length, origBytes.Length);
+    int same = 0;
+    for (int i = 0; i < after.Length; i++) if (after[i] == origBytes[i]) same++;
+    Check("overwrite replaces (nearly) every byte", same < origBytes.Length / 50, true);
+    Check("overwrite leaves the file in place", File.Exists(big), true);
+
+    // A normal file, counted by bytes overwritten.
+    var doc = Path.Combine(work, "secret.txt");
+    File.WriteAllText(doc, "client SSN 123-45-6789");
+    var one = ReceiptCapture.Core.Security.FileShredder.Shred(new[] { doc }, new ReceiptCapture.Core.Security.ShredOptions { Passes = 3 });
+    Check("a shredded file is gone", File.Exists(doc), false);
+    Check("it is counted", one.FilesShredded, 1);
+    Check("bytes overwritten = size x passes", one.BytesOverwritten, 22L * 3);
+    Check("no failures", one.Failures.Count, 0);
+    Check("the run counts as succeeded", one.Succeeded, true);
+    Check("nothing is left behind in the folder under any name", Directory.GetFileSystemEntries(work).Length, 1);   // only big.bin
+
+    // Read-only and empty files.
+    var locked = Path.Combine(work, "readonly.txt");
+    File.WriteAllText(locked, "x");
+    File.SetAttributes(locked, FileAttributes.ReadOnly);
+    var empty = Path.Combine(work, "empty.txt");
+    File.WriteAllBytes(empty, Array.Empty<byte>());
+    var both = ReceiptCapture.Core.Security.FileShredder.Shred(new[] { locked, empty });
+    Check("a read-only file is shredded", File.Exists(locked), false);
+    Check("an empty file is shredded", File.Exists(empty), false);
+    Check("both counted", both.FilesShredded, 2);
+
+    // A whole folder tree.
+    var tree = Path.Combine(work, "case");
+    Directory.CreateDirectory(Path.Combine(tree, "a", "b"));
+    File.WriteAllText(Path.Combine(tree, "one.txt"), "1");
+    File.WriteAllText(Path.Combine(tree, "a", "two.txt"), "22");
+    File.WriteAllText(Path.Combine(tree, "a", "b", "three.txt"), "333");
+    var folderRun = ReceiptCapture.Core.Security.FileShredder.Shred(new[] { tree });
+    Check("a folder is removed with everything inside", Directory.Exists(tree), false);
+    Check("its files are counted", folderRun.FilesShredded, 3);
+    Check("its folders are counted", folderRun.FoldersRemoved, 3);
+
+    // Links are removed but what they point at is not touched.
+    var targetFolder = Path.Combine(work, "precious");
+    Directory.CreateDirectory(targetFolder);
+    var precious = Path.Combine(targetFolder, "keep.txt");
+    File.WriteAllText(precious, "keep me");
+    var link = Path.Combine(work, "link-to-keep.txt");
+    bool linked = false;
+    try { File.CreateSymbolicLink(link, precious); linked = true; } catch (Exception) { /* not allowed on this PC: skip */ }
+    if (linked)
+    {
+        ReceiptCapture.Core.Security.FileShredder.Shred(new[] { link });
+        Check("a file link is removed", File.Exists(link) || new FileInfo(link).Exists, false);
+        Check("what the link pointed at is untouched", File.ReadAllText(precious), "keep me");
+    }
+    var dirLink = Path.Combine(work, "link-to-folder");
+    bool dirLinked = false;
+    try { Directory.CreateSymbolicLink(dirLink, targetFolder); dirLinked = true; } catch (Exception) { }
+    if (dirLinked)
+    {
+        var linkRun = ReceiptCapture.Core.Security.FileShredder.Shred(new[] { dirLink });
+        Check("a folder link is removed", Directory.Exists(dirLink), false);
+        Check("the folder it pointed at is untouched", File.ReadAllText(precious), "keep me");
+        Check("and nothing inside it was shredded", linkRun.FilesShredded, 0);
+    }
+
+    // A folder that contains a link must not shred the link's target either.
+    var holder = Path.Combine(work, "holder");
+    Directory.CreateDirectory(holder);
+    File.WriteAllText(Path.Combine(holder, "own.txt"), "own");
+    bool inner = false;
+    try { Directory.CreateSymbolicLink(Path.Combine(holder, "inner-link"), targetFolder); inner = true; } catch (Exception) { }
+    if (inner)
+    {
+        ReceiptCapture.Core.Security.FileShredder.Shred(new[] { holder });
+        Check("a folder holding a link is removed", Directory.Exists(holder), false);
+        Check("the link's target survives", File.ReadAllText(precious), "keep me");
+    }
+
+    // Problems are reported, not thrown.
+    var missing = ReceiptCapture.Core.Security.FileShredder.Shred(new[] { Path.Combine(work, "nope.txt") });
+    Check("a missing path is a failure", missing.Failures.Count, 1);
+    Check("it says it doesn't exist", missing.Failures[0].Reason.Contains("doesn't exist"), true);
+
+    var stuck = Path.Combine(work, "stuck.txt");
+    File.WriteAllText(stuck, "in use");
+    using (var hold = new FileStream(stuck, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+    {
+        var stuckRun = ReceiptCapture.Core.Security.FileShredder.Shred(new[] { stuck });
+        Check("a file in use is a failure, not a crash", stuckRun.Failures.Count, 1);
+        Check("and it is not counted as shredded", stuckRun.FilesShredded, 0);
+    }
+    Check("the file in use is still there", File.Exists(stuck), true);
+
+    // Stopping happens between files; nothing is half done.
+    var stopA = Path.Combine(work, "stopA.txt");
+    File.WriteAllText(stopA, "keep");
+    using (var cts = new CancellationTokenSource())
+    {
+        cts.Cancel();
+        var stoppedRun = ReceiptCapture.Core.Security.FileShredder.Shred(new[] { stopA }, cancel: cts.Token);
+        Check("a stopped run says so", stoppedRun.Stopped, true);
+        Check("and shredded nothing", stoppedRun.FilesShredded, 0);
+        Check("a file not reached is untouched", File.ReadAllText(stopA), "keep");
+    }
+
+    // The number of passes is checked.
+    bool badPasses = false;
+    try { ReceiptCapture.Core.Security.FileShredder.Shred(new[] { stopA }, new ReceiptCapture.Core.Security.ShredOptions { Passes = 0 }); }
+    catch (ArgumentOutOfRangeException) { badPasses = true; }
+    Check("zero passes is refused", badPasses, true);
+    Check("and the file is untouched", File.ReadAllText(stopA), "keep");
+
+    // The guard.
+    var defaultGuard = ReceiptCapture.Core.Security.ShredGuard.Default;
+    var rootPath = Path.GetPathRoot(work)!;
+    Check("a drive root is refused", defaultGuard.Check(rootPath) != null, true);
+    var guard = new ReceiptCapture.Core.Security.ShredGuard(
+        new[] { Path.Combine(work, "system") },
+        new[] { Path.Combine(work, "home") });
+    Check("inside a protected tree is refused", guard.Check(Path.Combine(work, "system", "x", "y.dll")) != null, true);
+    Check("the protected tree itself is refused", guard.Check(Path.Combine(work, "system")) != null, true);
+    Check("a folder holding a protected tree is refused", guard.Check(work) != null, true);
+    Check("a main folder itself is refused", guard.Check(Path.Combine(work, "home")) != null, true);
+    Check("a trailing slash doesn't fool the guard", guard.Check(Path.Combine(work, "home") + Path.DirectorySeparatorChar) != null, true);
+    Check("a file inside a main folder is allowed", guard.Check(Path.Combine(work, "home", "old.docx")), (string?)null);
+    Check("a similarly named folder is not confused with a protected one", guard.Check(Path.Combine(work, "system2", "a.txt")), (string?)null);
+
+    var guarded = ReceiptCapture.Core.Security.FileShredder.Shred(new[] { Path.Combine(work, "system", "a.dll") }, guard: guard);
+    Check("the guard stops the shredder", guarded.Failures.Count, 1);
+
+    Directory.Delete(work, recursive: true);
+}
+// <<< shredder
+
+// >>> compare
+// ---------- Document comparison ----------
+{
+    // Reads a segment list back: both texts must be rebuilt exactly, and the edit count must be the minimum possible.
+    bool Valid(string[] a, string[] b, ReceiptCapture.Core.Comparison.DiffResult r, out int lcsMissing)
+    {
+        var rebuiltA = new List<string>(); var rebuiltB = new List<string>();
+        bool ok = true;
+        foreach (var s in r.Segments)
+        {
+            switch (s.Kind)
+            {
+                case ReceiptCapture.Core.Comparison.DiffKind.Equal:
+                    for (int i = 0; i < s.OldCount; i++) { if (a[s.OldStart + i] != b[s.NewStart + i]) ok = false; rebuiltA.Add(a[s.OldStart + i]); rebuiltB.Add(b[s.NewStart + i]); }
+                    break;
+                case ReceiptCapture.Core.Comparison.DiffKind.Delete:
+                    for (int i = 0; i < s.OldCount; i++) rebuiltA.Add(a[s.OldStart + i]);
+                    break;
+                default:
+                    for (int i = 0; i < s.NewCount; i++) rebuiltB.Add(b[s.NewStart + i]);
+                    break;
+            }
+        }
+        if (!rebuiltA.SequenceEqual(a) || !rebuiltB.SequenceEqual(b)) ok = false;
+
+        // Brute-force longest common subsequence.
+        var table = new int[a.Length + 1, b.Length + 1];
+        for (int i = a.Length - 1; i >= 0; i--)
+            for (int j = b.Length - 1; j >= 0; j--)
+                table[i, j] = a[i] == b[j] ? table[i + 1, j + 1] + 1 : Math.Max(table[i + 1, j], table[i, j + 1]);
+        int lcs = table[0, 0];
+        lcsMissing = (a.Length - lcs - r.Removed) + (b.Length - lcs - r.Added);
+        return ok;
+    }
+
+    var rng = new Random(12345);
+    int bad = 0, notMinimal = 0;
+    for (int trial = 0; trial < 400; trial++)
+    {
+        var seqA = Enumerable.Range(0, rng.Next(0, 40)).Select(_ => "w" + rng.Next(0, 5)).ToArray();
+        var seqB = Enumerable.Range(0, rng.Next(0, 40)).Select(_ => "w" + rng.Next(0, 5)).ToArray();
+        var r = ReceiptCapture.Core.Comparison.TextDiff.Compare(seqA, seqB);
+        if (!Valid(seqA, seqB, r, out int miss)) bad++;
+        if (miss != 0) notMinimal++;
+    }
+    Check("400 random diffs rebuild both texts exactly", bad, 0);
+    Check("and every one uses the fewest possible edits", notMinimal, 0);
+
+    var same = ReceiptCapture.Core.Comparison.TextDiff.Compare(new[] { "a", "b" }, new[] { "a", "b" });
+    Check("identical texts have no changes", same.Removed + same.Added, 0);
+    Check("and everything is unchanged", same.Unchanged, 2);
+    var empty = ReceiptCapture.Core.Comparison.TextDiff.Compare(Array.Empty<string>(), Array.Empty<string>());
+    Check("two empty texts are identical", empty.Segments.Count, 0);
+    var allNew = ReceiptCapture.Core.Comparison.TextDiff.Compare(Array.Empty<string>(), new[] { "x", "y" });
+    Check("a new text is all added", allNew.Added, 2);
+
+    // A big document with a few dozen scattered edits.
+    var bigWords = Enumerable.Range(0, 60000).Select(i => "word" + (i * 7919 % 5003)).ToList();
+    var edited = new List<string>(bigWords);
+    int expectedAdded = 0, expectedRemoved = 0;
+    var editRng = new Random(99);
+    for (int e = 0; e < 40; e++)
+    {
+        int at = editRng.Next(100, edited.Count - 100);
+        if (e % 3 == 0) { edited.RemoveAt(at); expectedRemoved++; }
+        else if (e % 3 == 1) { edited.Insert(at, "NEW" + e); expectedAdded++; }
+        else { edited[at] = "CHANGED" + e; expectedRemoved++; expectedAdded++; }
+    }
+    var sw = System.Diagnostics.Stopwatch.StartNew();
+    var bigDiff = ReceiptCapture.Core.Comparison.TextDiff.Compare(bigWords, edited);
+    sw.Stop();
+    Check("a 60,000-word document with 40 edits finds them", bigDiff.Added == expectedAdded && bigDiff.Removed == expectedRemoved, true);
+    Check("and does it in a few seconds", sw.Elapsed.TotalSeconds < 10, true);
+
+    // Texts that share almost nothing give up politely.
+    var xs = Enumerable.Range(0, 300).Select(i => "a" + i).ToArray();
+    var ys = Enumerable.Range(0, 300).Select(i => "b" + i).ToArray();
+    var tooMuch = ReceiptCapture.Core.Comparison.TextDiff.Compare(xs, ys, maxChanges: 50);
+    Check("very different texts are flagged", tooMuch.TooDifferent, true);
+    Check("and shown as wholly replaced", tooMuch.Removed == 300 && tooMuch.Added == 300, true);
+    var tooMuchKeepsEnds = ReceiptCapture.Core.Comparison.TextDiff.Compare(
+        new[] { "start" }.Concat(xs).Concat(new[] { "end" }).ToArray(),
+        new[] { "start" }.Concat(ys).Concat(new[] { "end" }).ToArray(), maxChanges: 50);
+    Check("the shared start and end are still recognised", tooMuchKeepsEnds.Unchanged, 2);
+
+    // Words and keys.
+    var toks = ReceiptCapture.Core.Comparison.DocumentText.FromParagraphs(new[] { "The  quick fox", "", "jumps." });
+    Check("four words", toks.Count, 4);
+    Check("the paragraph end is marked", toks[2].ParagraphEnd && toks[3].ParagraphEnd && !toks[0].ParagraphEnd, true);
+    var paged = ReceiptCapture.Core.Comparison.DocumentText.FromPages(new[] { "one two", "three" });
+    Check("pages are numbered from 1", paged[2].Page, (int?)2);
+    Check("a page ends a paragraph", paged[1].ParagraphEnd, true);
+    Check("curly quotes match straight ones", ReceiptCapture.Core.Comparison.DocumentText.Key("don\u2019t", false), "don't");
+    Check("long dashes match hyphens", ReceiptCapture.Core.Comparison.DocumentText.Key("2020\u20132021", false), "2020-2021");
+    Check("case can be ignored", ReceiptCapture.Core.Comparison.DocumentText.Key("Hello", true), "hello");
+    Check("case is kept by default", ReceiptCapture.Core.Comparison.DocumentText.Key("Hello", false), "Hello");
+    Check("soft hyphens vanish", ReceiptCapture.Core.Comparison.DocumentText.Key("co\u00ADoperate", false), "cooperate");
+
+    // Word documents.
+    const string W = "xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" xmlns:mc=\"http://schemas.openxmlformats.org/markup-compatibility/2006\"";
+    var xml = $@"<w:document {W}><w:body>
+        <w:p><w:r><w:t>Hello</w:t></w:r><w:r><w:t xml:space=""preserve""> world</w:t></w:r></w:p>
+        <w:p><w:r><w:t>Keep</w:t></w:r><w:del><w:r><w:delText>gone</w:delText></w:r></w:del><w:ins><w:r><w:t> added</w:t></w:r></w:ins></w:p>
+        <w:p><w:r><w:t>a</w:t><w:tab/><w:t>b</w:t></w:r></w:p>
+        <w:p><w:r><w:t>   </w:t></w:r></w:p>
+        <w:tbl><w:tr><w:tc><w:p><w:r><w:t>cell one</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>cell two</w:t></w:r></w:p></w:tc></w:tr></w:tbl>
+        <w:p><w:r><mc:AlternateContent><mc:Choice><w:txbxContent><w:p><w:r><w:t>in a box</w:t></w:r></w:p></w:txbxContent></mc:Choice><mc:Fallback><w:txbxContent><w:p><w:r><w:t>in a box</w:t></w:r></w:p></w:txbxContent></mc:Fallback></mc:AlternateContent></w:r></w:p>
+        </w:body></w:document>";
+    var paras = ReceiptCapture.Core.Comparison.DocxText.ParagraphsFromXml(xml);
+    Check("a Word paragraph's runs are joined", paras[0], "Hello world");
+    Check("tracked deletions are left out and insertions kept", paras[1], "Keep added");
+    Check("a tab becomes a space", paras[2], "a b");
+    Check("a blank paragraph is dropped, table cells and the text box counted once", string.Join("|", paras.Skip(3)), "cell one|cell two|in a box");
+
+    var notesXml = $@"<w:footnotes {W}><w:footnote w:type=""separator"" w:id=""-1""><w:p><w:r><w:separator/></w:r></w:p></w:footnote>
+        <w:footnote w:id=""1""><w:p><w:r><w:t>See page 4.</w:t></w:r></w:p></w:footnote></w:footnotes>";
+    Check("footnote separators are ignored but footnotes are read",
+        string.Join("|", ReceiptCapture.Core.Comparison.DocxText.ParagraphsFromXml(notesXml, skipSeparators: true)), "See page 4.");
+
+    // A real .docx file (a zip), and things that are not one.
+    var folder = Path.Combine(Path.GetTempPath(), "cmp-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(folder);
+    var docx = Path.Combine(folder, "sample.docx");
+    using (var zip = System.IO.Compression.ZipFile.Open(docx, System.IO.Compression.ZipArchiveMode.Create))
+    {
+        using (var w = new StreamWriter(zip.CreateEntry("word/document.xml").Open())) w.Write($@"<w:document {W}><w:body><w:p><w:r><w:t>Body text</w:t></w:r></w:p></w:body></w:document>");
+        using (var w = new StreamWriter(zip.CreateEntry("word/footnotes.xml").Open())) w.Write(notesXml);
+    }
+    Check("a .docx file is read: body then footnotes", string.Join("|", ReceiptCapture.Core.Comparison.DocxText.ReadParagraphs(docx)), "Body text|See page 4.");
+
+    var notZip = Path.Combine(folder, "old.docx");
+    File.WriteAllBytes(notZip, new byte[] { 0xD0, 0xCF, 0x11, 0xE0, 1, 2, 3 });
+    string? friendly = null;
+    try { ReceiptCapture.Core.Comparison.DocxText.ReadParagraphs(notZip); } catch (InvalidDataException ex) { friendly = ex.Message; }
+    Check("something that isn't a .docx gets a plain-language error", friendly != null && friendly.Contains("old.docx") && friendly.Contains("save a copy"), true);
+
+    var noBody = Path.Combine(folder, "nobody.docx");
+    using (var zip = System.IO.Compression.ZipFile.Open(noBody, System.IO.Compression.ZipArchiveMode.Create))
+        using (var w = new StreamWriter(zip.CreateEntry("other.txt").Open())) w.Write("x");
+    string? noBodyMessage = null;
+    try { ReceiptCapture.Core.Comparison.DocxText.ReadParagraphs(noBody); } catch (InvalidDataException ex) { noBodyMessage = ex.Message; }
+    Check("a zip with no Word body is explained", noBodyMessage != null && noBodyMessage.Contains("Word document"), true);
+    Directory.Delete(folder, recursive: true);
+
+    // The report.
+    var left = ReceiptCapture.Core.Comparison.DocumentText.FromParagraphs(new[]
+    {
+        "Intro paragraph one stays", "Second paragraph stays too", "The fee is 100 dollars", "Fourth paragraph unchanged", "Fifth paragraph unchanged", "Sixth paragraph unchanged",
+    });
+    var right = ReceiptCapture.Core.Comparison.DocumentText.FromParagraphs(new[]
+    {
+        "Intro paragraph one stays", "Second paragraph stays too", "The fee is 250 <b>dollars</b>", "Fourth paragraph unchanged", "Fifth paragraph unchanged", "Sixth paragraph unchanged",
+    });
+    var diff = ReceiptCapture.Core.Comparison.TextDiff.Compare(
+        left.Select(t => ReceiptCapture.Core.Comparison.DocumentText.Key(t.Text, false)).ToList(),
+        right.Select(t => ReceiptCapture.Core.Comparison.DocumentText.Key(t.Text, false)).ToList());
+    var info = new ReceiptCapture.Core.Comparison.ComparisonInfo("old.docx", "AAA", 1000, "new.docx", "BBB", 2000,
+        new DateTimeOffset(2026, 10, 27, 12, 0, 0, TimeSpan.Zero), "1.0", new[] { "A note." });
+    var summary = ReceiptCapture.Core.Comparison.ComparisonReport.Summarize(left, right, diff);
+    Check("one paragraph changed", summary.ParagraphsChanged, 1);
+    Check("two words added", summary.WordsAdded, 2);
+    Check("two words removed", summary.WordsRemoved, 2);
+    Check("not identical", summary.Identical, false);
+
+    var full = ReceiptCapture.Core.Comparison.ComparisonReport.ToHtml(info, left, right, diff, changesOnly: false);
+    Check("removed words are struck through", full.Contains("<del>100 dollars</del>"), true);
+    Check("added words are marked", full.Contains("<ins>250 &lt;b&gt;dollars&lt;/b&gt;</ins>"), true);
+    Check("markup in the documents can't run inside the report", full.Contains("<b>dollars"), false);
+    Check("the file names and fingerprints are listed", full.Contains("old.docx") && full.Contains("AAA") && full.Contains("new.docx") && full.Contains("BBB"), true);
+    Check("notes appear", full.Contains("A note."), true);
+    Check("the full report keeps unchanged paragraphs", full.Contains("Sixth paragraph unchanged"), true);
+
+    var changesOnly = ReceiptCapture.Core.Comparison.ComparisonReport.ToHtml(info, left, right, diff, changesOnly: true);
+    Check("changes-only keeps the change", changesOnly.Contains("<del>100 dollars</del>"), true);
+    Check("changes-only keeps one paragraph of context", changesOnly.Contains("Second paragraph stays too") && changesOnly.Contains("Fourth paragraph unchanged"), true);
+    Check("changes-only drops the distant paragraphs", changesOnly.Contains("Intro paragraph one stays") || changesOnly.Contains("Sixth paragraph unchanged"), false);
+    Check("and marks the gap", changesOnly.Contains("class=\"gap\""), true);
+
+    var identicalDiff = ReceiptCapture.Core.Comparison.TextDiff.Compare(new[] { "x" }, new[] { "x" });
+    var one = ReceiptCapture.Core.Comparison.DocumentText.FromParagraphs(new[] { "x" });
+    var identicalHtml = ReceiptCapture.Core.Comparison.ComparisonReport.ToHtml(info, one, one, identicalDiff, changesOnly: true);
+    Check("identical documents say so", identicalHtml.Contains("No differences"), true);
+
+    var pagedLeft = ReceiptCapture.Core.Comparison.DocumentText.FromPages(new[] { "same page", "old words" });
+    var pagedRight = ReceiptCapture.Core.Comparison.DocumentText.FromPages(new[] { "same page", "new words" });
+    var pagedDiff = ReceiptCapture.Core.Comparison.TextDiff.Compare(pagedLeft.Select(t => t.Text).ToList(), pagedRight.Select(t => t.Text).ToList());
+    var pagedHtml = ReceiptCapture.Core.Comparison.ComparisonReport.ToHtml(info, pagedLeft, pagedRight, pagedDiff, changesOnly: false);
+    Check("changes on a PDF show their page", pagedHtml.Contains("p. 2"), true);
+
+    var different = ReceiptCapture.Core.Comparison.ComparisonReport.ToHtml(info,
+        ReceiptCapture.Core.Comparison.DocumentText.FromParagraphs(new[] { string.Join(" ", xs) }),
+        ReceiptCapture.Core.Comparison.DocumentText.FromParagraphs(new[] { string.Join(" ", ys) }),
+        tooMuch, changesOnly: false);
+    Check("a too-different pair is explained in the report", different.Contains("very different"), true);
+}
+// <<< compare
+
+// >>> integrity
+// ---------- Integrity and chain of custody ----------
+{
+    var root = Path.Combine(Path.GetTempPath(), "integ-" + Guid.NewGuid().ToString("N"));
+    var evidence = Path.Combine(root, "Evidence");
+    Directory.CreateDirectory(Path.Combine(evidence, "emails"));
+    File.WriteAllText(Path.Combine(evidence, "contract.txt"), "The contract text.");
+    File.WriteAllText(Path.Combine(evidence, "emails", "one.txt"), "first email");
+    File.WriteAllText(Path.Combine(evidence, "emails", "two.txt"), "second email");
+    var stamp0 = new DateTimeOffset(2026, 10, 27, 9, 30, 0, TimeSpan.FromHours(-4));
+
+    var made = ReceiptCapture.Core.Integrity.IntegrityChecker.Create(evidence, "Aegis Docs 1.0", "andrew@PC", stamp0,
+        matter: "Smith v. Jones", preparedBy: "A. Out", notes: "Initial collection");
+    Check("three files are recorded", made.FileCount, 3);
+    Check("paths use forward slashes", made.Entries.Any(e => e.Path == "emails/one.txt"), true);
+    Check("sizes are recorded", made.Entries.First(e => e.Path == "contract.txt").Size, 18L);
+    Check("a fingerprint is stored", made.Fingerprint.Length, 64);
+    Check("the stored fingerprint is intact", made.FingerprintIsIntact, true);
+    Check("the folder name is the folder, not the path", made.FolderName, "Evidence");
+    Check("the first custody entry says Created", made.Events[0].Action, "Created");
+    Check("the SHA-256 of a known text is right", made.Entries.First(e => e.Path == "contract.txt").Sha256,
+        ReceiptCapture.Core.Storage.FileHasher.Sha256(Path.Combine(evidence, "contract.txt")));
+
+    // Same files, same fingerprint, whatever the order or time.
+    var again = ReceiptCapture.Core.Integrity.IntegrityChecker.Create(evidence, "x", "someone else", stamp0.AddDays(5));
+    Check("the list fingerprint depends only on the files", again.ComputeFingerprint(), made.ComputeFingerprint());
+
+    // Save and load.
+    var jsonPath = Path.Combine(root, "manifest.json");
+    made.Save(jsonPath);
+    var loadedManifest = ReceiptCapture.Core.Integrity.IntegrityManifest.Load(jsonPath);
+    Check("a saved manifest loads back with the same entries", loadedManifest.Entries.Count, 3);
+    Check("and the same matter", loadedManifest.Matter, "Smith v. Jones");
+    Check("and the same time", loadedManifest.CreatedAt, stamp0);
+    Check("and the fingerprint is still intact", loadedManifest.FingerprintIsIntact, true);
+    Check("and the custody log", loadedManifest.Events.Count, 1);
+
+    // Everything unchanged.
+    var clean = ReceiptCapture.Core.Integrity.IntegrityChecker.Verify(loadedManifest, evidence);
+    Check("an untouched folder passes", clean.AllGood, true);
+    Check("all three match", clean.Matching, 3);
+
+    // The manifest saved inside the folder is not counted as a new file stamp0 it is excluded.
+    var inside = Path.Combine(evidence, "manifest-inside.json");
+    made.Save(inside);
+    Check("a manifest inside the folder shows as new if not excluded",
+        ReceiptCapture.Core.Integrity.IntegrityChecker.Verify(made, evidence).Count(ReceiptCapture.Core.Integrity.VerifyStatus.Added), 1);
+    Check("and doesn't stamp0 excluded",
+        ReceiptCapture.Core.Integrity.IntegrityChecker.Verify(made, evidence, new[] { inside }).AllGood, true);
+    File.Delete(inside);
+
+    // Same-size change, size change, removal, addition.
+    File.WriteAllText(Path.Combine(evidence, "emails", "one.txt"), "FIRST email");        // same length, different content
+    File.WriteAllText(Path.Combine(evidence, "contract.txt"), "The contract text, edited.");
+    File.Delete(Path.Combine(evidence, "emails", "two.txt"));
+    File.WriteAllText(Path.Combine(evidence, "extra.txt"), "new");
+    var dirty = ReceiptCapture.Core.Integrity.IntegrityChecker.Verify(loadedManifest, evidence);
+    Check("a tampered folder fails", dirty.AllGood, false);
+    Check("a same-size edit is caught", dirty.Items.First(i => i.Path == "emails/one.txt").Status, ReceiptCapture.Core.Integrity.VerifyStatus.Changed);
+    Check("a same-size edit shows both fingerprints", dirty.Items.First(i => i.Path == "emails/one.txt").ActualSha256 != null, true);
+    Check("a size change is caught", dirty.Items.First(i => i.Path == "contract.txt").Status, ReceiptCapture.Core.Integrity.VerifyStatus.Changed);
+    Check("and says so", dirty.Items.First(i => i.Path == "contract.txt").Detail.Contains("size changed"), true);
+    Check("a removed file is caught", dirty.Items.First(i => i.Path == "emails/two.txt").Status, ReceiptCapture.Core.Integrity.VerifyStatus.Missing);
+    Check("an added file is caught", dirty.Items.First(i => i.Path == "extra.txt").Status, ReceiptCapture.Core.Integrity.VerifyStatus.Added);
+    Check("nothing else is flagged", dirty.Items.Count, 4);
+
+    // Editing the list itself is detected.
+    var forged = ReceiptCapture.Core.Integrity.IntegrityManifest.Load(jsonPath);
+    forged.Entries[0] = forged.Entries[0] with { Sha256 = new string('0', 64) };
+    Check("a hand-edited list no longer matches its fingerprint", forged.FingerprintIsIntact, false);
+    var forgedText = File.ReadAllText(jsonPath).Replace(made.Entries.OrderBy(e => e.Path).First().Sha256, new string('a', 64));
+    var forgedPath = Path.Combine(root, "forged.json");
+    File.WriteAllText(forgedPath, forgedText);
+    Check("and so is a list changed in its file", ReceiptCapture.Core.Integrity.IntegrityManifest.Load(forgedPath).FingerprintIsIntact, false);
+
+    // Recording a check doesn't change the fingerprint.
+    var before = loadedManifest.ComputeFingerprint();
+    loadedManifest.AddEvent(stamp0.AddDays(1), "andrew@PC", "Checked", "Differences found.");
+    Check("a custody entry doesn't change the list fingerprint", loadedManifest.ComputeFingerprint(), before);
+    Check("and is kept", loadedManifest.Events.Count, 2);
+
+    // Bad input.
+    var junk = Path.Combine(root, "junk.json");
+    File.WriteAllText(junk, "this is not json");
+    string? junkMessage = null;
+    try { ReceiptCapture.Core.Integrity.IntegrityManifest.Load(junk); } catch (InvalidDataException ex) { junkMessage = ex.Message; }
+    Check("a file that isn't a manifest is explained", junkMessage != null && junkMessage.Contains("isn't an Aegis Docs integrity manifest"), true);
+
+    var future = Path.Combine(root, "future.json");
+    File.WriteAllText(future, "{\"format\": 99, \"entries\": []}");
+    string? futureMessage = null;
+    try { ReceiptCapture.Core.Integrity.IntegrityManifest.Load(future); } catch (InvalidDataException ex) { futureMessage = ex.Message; }
+    Check("a newer format asks for an update", futureMessage != null && futureMessage.Contains("newer version"), true);
+
+    bool missingFolder = false;
+    try { ReceiptCapture.Core.Integrity.IntegrityChecker.Create(Path.Combine(root, "nope"), "t", "u", stamp0); } catch (DirectoryNotFoundException) { missingFolder = true; }
+    Check("a missing folder is refused", missingFolder, true);
+
+    // Stopping gives nothing half-made.
+    using (var cts = new CancellationTokenSource())
+    {
+        cts.Cancel();
+        bool cancelled = false;
+        try { ReceiptCapture.Core.Integrity.IntegrityChecker.Create(evidence, "t", "u", stamp0, cancel: cts.Token); } catch (OperationCanceledException) { cancelled = true; }
+        Check("a stopped run throws instead of returning a partial list", cancelled, true);
+    }
+
+    // Links are not followed.
+    var outside = Path.Combine(root, "outside");
+    Directory.CreateDirectory(outside);
+    File.WriteAllText(Path.Combine(outside, "secret.txt"), "outside the folder");
+    bool linked = false;
+    try { Directory.CreateSymbolicLink(Path.Combine(evidence, "link"), outside); linked = true; } catch (Exception) { }
+    if (linked)
+    {
+        var withLink = ReceiptCapture.Core.Integrity.IntegrityChecker.Create(evidence, "t", "u", stamp0);
+        Check("a linked folder's contents are not recorded", withLink.Entries.Any(e => e.Path.Contains("secret")), false);
+    }
+
+    // The reports.
+    var html = ReceiptCapture.Core.Integrity.IntegrityReport.ManifestHtml(made);
+    Check("the manifest page names the matter", html.Contains("Smith v. Jones"), true);
+    Check("it lists the files and fingerprints", html.Contains("emails/one.txt") && html.Contains(made.Entries[0].Sha256), true);
+    Check("it shows the list fingerprint", html.Contains(made.ComputeFingerprint()), true);
+    Check("it is honest about what it can't prove", html.Contains("does not on its own prove when"), true);
+    Check("it has a custody log", html.Contains("Custody log") && html.Contains("Created"), true);
+
+    var nasty = new ReceiptCapture.Core.Integrity.IntegrityManifest { FolderName = "<script>alert(1)</script>", Tool = "t", CreatedBy = "u" };
+    nasty.Entries.Add(new ReceiptCapture.Core.Integrity.ManifestEntry("<img src=x>.txt", 1, "ab", stamp0));
+    Check("markup in names can't run in the page", ReceiptCapture.Core.Integrity.IntegrityReport.ManifestHtml(nasty).Contains("<script>alert"), false);
+
+    var manifestCsv = ReceiptCapture.Core.Integrity.IntegrityReport.ManifestCsv(made);
+    Check("the CSV has a header and a row per file", manifestCsv.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length, 4);
+    var formula = new ReceiptCapture.Core.Integrity.IntegrityManifest();
+    formula.Entries.Add(new ReceiptCapture.Core.Integrity.ManifestEntry("=cmd|calc.txt", 1, "ab", stamp0));
+    Check("a file name that looks like a formula is defused in the CSV", ReceiptCapture.Core.Integrity.IntegrityReport.ManifestCsv(formula).Contains("\n'=cmd"), true);
+    var commaName = new ReceiptCapture.Core.Integrity.IntegrityManifest();
+    commaName.Entries.Add(new ReceiptCapture.Core.Integrity.ManifestEntry("a,b \"c\".txt", 1, "ab", stamp0));
+    Check("commas and quotes are escaped in the CSV", ReceiptCapture.Core.Integrity.IntegrityReport.ManifestCsv(commaName).Contains("\"a,b \"\"c\"\".txt\""), true);
+
+    var goodPage = ReceiptCapture.Core.Integrity.IntegrityReport.VerifyHtml(made, clean, evidence, stamp0, "andrew@PC", "Aegis Docs 1.0");
+    Check("a clean check says everything matches", goodPage.Contains("Everything matches"), true);
+    var badPage = ReceiptCapture.Core.Integrity.IntegrityReport.VerifyHtml(made, dirty, evidence, stamp0, "andrew@PC", "Aegis Docs 1.0");
+    Check("a failed check says so", badPage.Contains("Differences found"), true);
+    Check("and lists what changed", badPage.Contains("contract.txt") && badPage.Contains("extra.txt") && badPage.Contains("two.txt"), true);
+    var forgedPage = ReceiptCapture.Core.Integrity.IntegrityReport.VerifyHtml(forged, clean, evidence, stamp0, "u", "t");
+    Check("an edited list is called out", forgedPage.Contains("The list itself was edited"), true);
+    Check("the check CSV has a row per file", ReceiptCapture.Core.Integrity.IntegrityReport.VerifyCsv(dirty).Split('\n', StringSplitOptions.RemoveEmptyEntries).Length, 5);
+
+    Directory.Delete(root, recursive: true);
+}
+// <<< integrity
+
+// >>> pdftools
+// ---------- PDF toolbox: page lists and compression decisions ----------
+{
+    bool Order(string? spec, int count, out List<int> pages, out string error)
+        => ReceiptCapture.Core.Documents.PageSelection.TryParseOrder(spec, count, out pages, out error);
+    bool Set(string? spec, int count, bool all, out SortedSet<int> pages, out string error)
+        => ReceiptCapture.Core.Documents.PageSelection.TryParseSet(spec, count, all, out pages, out error);
+
+    Check("a new order is read as typed", Order("3, 1, 2", 5, out var ord, out _) ? string.Join(",", ord) : "fail", "3,1,2");
+    Check("ranges expand in place", Order("1, 4-6, 2", 8, out ord, out _) ? string.Join(",", ord) : "fail", "1,4,5,6,2");
+    Check("a range can run backwards for a new order", Order("5-3", 5, out ord, out _) ? string.Join(",", ord) : "fail", "5,4,3");
+    Check("an open range runs to the end", Order("3-", 5, out ord, out _) ? string.Join(",", ord) : "fail", "3,4,5");
+    Check("pages may repeat in a new order", Order("1, 1, 2", 3, out ord, out _) ? string.Join(",", ord) : "fail", "1,1,2");
+    Check("semicolons work like commas", Order("2; 1", 3, out ord, out _) ? string.Join(",", ord) : "fail", "2,1");
+    Check("a page past the end is refused", Order("9", 5, out _, out var err), false);
+    Check("and says which page", err.Contains("Page 9 doesn't exist") && err.Contains("5 pages"), true);
+    Check("page zero is refused", Order("0", 5, out _, out _), false);
+    Check("words are refused", Order("two", 5, out _, out err), false);
+    Check("and quoted back", err.Contains("\"two\""), true);
+    Check("an empty order is refused", Order("  ", 5, out _, out _), false);
+    Check("a negative-looking range is refused", Order("-3", 5, out _, out _), false);
+    Check("a document with no pages is refused", Order("1", 0, out _, out _), false);
+
+    Check("a set is sorted and de-duplicated", Set("5, 2, 2, 3-4", 6, false, out var set, out _) ? string.Join(",", set) : "fail", "2,3,4,5");
+    Check("a blank set can mean every page", Set("", 3, true, out set, out _) ? string.Join(",", set) : "fail", "1,2,3");
+    Check("or be refused", Set("", 3, false, out _, out _), false);
+    Check("a backwards range is refused in a set", Set("4-2", 6, false, out _, out err), false);
+    Check("with a reason", err.Contains("backwards"), true);
+    Check("a set page past the end is refused", Set("7", 6, false, out _, out _), false);
+
+    Set("2, 4", 5, false, out var toDelete, out _);
+    Check("deleting leaves the rest in order", ReceiptCapture.Core.Documents.PageSelection.TryKeepAfterDelete(toDelete, 5, out var keptPages, out _) ? string.Join(",", keptPages) : "fail", "1,3,5");
+    Set("1-3", 3, false, out var everything, out _);
+    Check("deleting every page is refused", ReceiptCapture.Core.Documents.PageSelection.TryKeepAfterDelete(everything, 3, out _, out err), false);
+    Check("with a reason", err.Contains("every page"), true);
+
+    Check("reverse", string.Join(",", ReceiptCapture.Core.Documents.PageSelection.Reverse(4)), "4,3,2,1");
+    Check("reverse of nothing", ReceiptCapture.Core.Documents.PageSelection.Reverse(0).Count, 0);
+
+    Check("a page turned 90 more is 90", ReceiptCapture.Core.Documents.PageSelection.Rotated(0, 90), 90);
+    Check("rotation wraps past 360", ReceiptCapture.Core.Documents.PageSelection.Rotated(270, 180), 90);
+    Check("turning left from 0 gives 270", ReceiptCapture.Core.Documents.PageSelection.Rotated(0, -90), 270);
+    Check("a full circle is back to 0", ReceiptCapture.Core.Documents.PageSelection.Rotated(180, 180), 0);
+
+    var smaller = ReceiptCapture.Core.Documents.ImageShrink.For(ReceiptCapture.Core.Documents.CompressLevel.Smaller);
+    var smallest = ReceiptCapture.Core.Documents.ImageShrink.For(ReceiptCapture.Core.Documents.CompressLevel.Smallest);
+    Check("smallest is tighter than smaller", smallest.MaxSide < smaller.MaxSide && smallest.JpegQuality < smaller.JpegQuality, true);
+    Check("a big picture is scaled down, keeping its shape", ReceiptCapture.Core.Documents.ImageShrink.ScaledSize(3300, 2550, 1650), (1650, 1275));
+    Check("a tall picture is limited by its height", ReceiptCapture.Core.Documents.ImageShrink.ScaledSize(1000, 4000, 1000), (250, 1000));
+    Check("a small picture is never enlarged", ReceiptCapture.Core.Documents.ImageShrink.ScaledSize(800, 600, 1650), (800, 600));
+    Check("a thin picture keeps at least a pixel", ReceiptCapture.Core.Documents.ImageShrink.ScaledSize(10000, 1, 100), (100, 1));
+    Check("a barely smaller result isn't worth keeping", ReceiptCapture.Core.Documents.ImageShrink.WorthKeeping(1000, 950), false);
+    Check("a clearly smaller one is", ReceiptCapture.Core.Documents.ImageShrink.WorthKeeping(1000, 600), true);
+    Check("an empty result is never kept", ReceiptCapture.Core.Documents.ImageShrink.WorthKeeping(1000, 0), false);
+    Check("a larger result is never kept", ReceiptCapture.Core.Documents.ImageShrink.WorthKeeping(1000, 1200), false);
+    Check("savings are described", ReceiptCapture.Core.Documents.ImageShrink.DescribeSaving(10 * 1024 * 1024, 4 * 1024 * 1024).StartsWith("Saved 6.0 MB (60%)"), true);
+    Check("no saving is described plainly", ReceiptCapture.Core.Documents.ImageShrink.DescribeSaving(1000, 1000), "No saving");
+}
+// <<< pdftools
+
+// >>> walker
+// ---------- Folder walker (used by Integrity and the Shredder) ----------
+{
+    var walkRoot = Path.Combine(Path.GetTempPath(), "walk-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(Path.Combine(walkRoot, "sub", "deeper"));
+    File.WriteAllText(Path.Combine(walkRoot, "a.txt"), "a");
+    File.WriteAllText(Path.Combine(walkRoot, "sub", "b.txt"), "b");
+    File.WriteAllText(Path.Combine(walkRoot, "sub", "deeper", "c.txt"), "c");
+    var hiddenFile = Path.Combine(walkRoot, ".hidden.txt");
+    File.WriteAllText(hiddenFile, "h");
+    try { File.SetAttributes(hiddenFile, FileAttributes.Hidden); } catch (Exception) { }
+    var systemFile = Path.Combine(walkRoot, "sub", "system.dat");
+    File.WriteAllText(systemFile, "s");
+    try { File.SetAttributes(systemFile, FileAttributes.Hidden | FileAttributes.System); } catch (Exception) { }
+
+    var walked = ReceiptCapture.Core.Storage.FolderWalker.EnumerateFiles(walkRoot).Select(f => Path.GetRelativePath(walkRoot, f).Replace('\\', '/')).OrderBy(f => f).ToList();
+    Check("every file is listed, including hidden and system ones", string.Join("|", walked), ".hidden.txt|a.txt|sub/b.txt|sub/deeper/c.txt|sub/system.dat");
+
+    var walkOutside = Path.Combine(walkRoot, "outside-target");
+    Directory.CreateDirectory(walkOutside);
+    File.WriteAllText(Path.Combine(walkOutside, "far.txt"), "far");
+    var walkLinkFolder = Path.Combine(walkRoot, "sub", "loop");
+    bool walkLinked = false;
+    try { Directory.CreateSymbolicLink(walkLinkFolder, walkRoot); walkLinked = true; } catch (Exception) { }
+    if (walkLinked)
+    {
+        var withLink = ReceiptCapture.Core.Storage.FolderWalker.EnumerateFiles(walkRoot).Count(f => !f.Contains("outside-target"));
+        Check("a link back to the folder doesn't loop or double count", withLink, 5);
+    }
+    Check("a missing folder lists nothing instead of crashing", ReceiptCapture.Core.Storage.FolderWalker.EnumerateFiles(Path.Combine(walkRoot, "nope")).Count(), 0);
+
+    // The integrity manifest includes them too.
+    var walkManifest = ReceiptCapture.Core.Integrity.IntegrityChecker.Create(walkRoot, "t", "u", DateTimeOffset.UtcNow);
+    Check("a manifest records hidden files", walkManifest.Entries.Any(e => e.Path == ".hidden.txt"), true);
+    Check("and system files", walkManifest.Entries.Any(e => e.Path == "sub/system.dat"), true);
+    File.WriteAllText(hiddenFile, "H");
+    try { File.SetAttributes(hiddenFile, FileAttributes.Hidden); } catch (Exception) { }
+    var walkCheck = ReceiptCapture.Core.Integrity.IntegrityChecker.Verify(walkManifest, walkRoot);
+    Check("a change to a hidden file is caught", walkCheck.Items.First(i => i.Path == ".hidden.txt").Status, ReceiptCapture.Core.Integrity.VerifyStatus.Changed);
+
+    Directory.Delete(walkRoot, recursive: true);
+}
+// <<< walker
+
 Console.WriteLine($"\n{passed} passed, {failed} failed");
 return failed == 0 ? 0 : 1;

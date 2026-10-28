@@ -34,15 +34,23 @@ Scan your files and uncover hidden risks before sharing them.
 A streamlined toolkit built for busy legal and professional workflows.
 * **Batch Processing:** Easily merge files, split by page ranges or intervals, apply custom watermarks, and bulk-rename documents.
 * **Bates Numbering:** Apply sequential Bates stamps to case files and discovery sets instantly.
-* **Zero Risk:** Your original source files are never modified—every action creates a pristine new copy.
+* **Page Tools:** Reorder pages, delete pages, reverse the page order, or rotate pages in a PDF. Pages can be repeated, and the original is left alone.
+* **Shrink Large PDFs:** Makes scans and photo-heavy PDFs smaller by reducing the pictures inside. A file is only saved if it comes out clearly smaller, and text and drawings are never touched.
+* **Zero Risk:** Your original source files are never modified—every action creates a pristine new copy. (The Shredder is the one deliberate exception: it destroys only what you give it, and asks first.)
 
-### 4. Expense & Receipt Manager
+### 4. Compare, Prove & Shred
+Three extra tools for the moments that matter in legal and compliance work.
+* **Compare Two Documents:** Finds every word added or removed between two versions of a PDF, Word (.docx) or text file. The report shows removed words struck through in red and added words underlined in green, with the page for PDFs, and can show only the changes. Word autocorrect (curly quotes, long dashes) isn't counted as a change.
+* **Integrity & Chain of Custody:** Fingerprints (SHA-256) every file in a folder into a manifest, with a matter reference, who made it and when. Later, check the folder against it to see which files are unchanged, changed, missing or new, and save a printable report. A custody log records each check, and a manifest that was edited after it was saved is flagged.
+* **Secure Shredder:** Drop in files or folders to overwrite them with random data and delete them for good (1, 3 or 7 passes). It refuses to touch whole drives, Windows and program folders, or your main folders, never follows shortcuts out of a folder, and asks before it starts.
+
+### 5. Expense & Receipt Manager
 Simplify bookkeeping without exposing financial data to the cloud.
 * **Drag & Drop Simplicity:** Drop in receipts or vendor invoices (PNG, JPG, PDF).
 * **Smart Offline Extraction:** Automatically reads the vendor, date, total, tax, and category for you to review and confirm.
 * **Easy Export:** Keep a clean, searchable list of your expenses ready to export to CSV for Excel or your accountant.
 
-### 5. Secure Meetings & Local Transcription
+### 6. Secure Meetings & Local Transcription
 Capture client consultations and internal discussions with complete privacy.
 * **Flexible Recording:** Record your microphone and (optionally) your computer's sound during meetings.
 * **Offline Transcripts:** Keep organized notes and let local AI generate accurate transcripts completely offline.
@@ -50,7 +58,7 @@ Capture client consultations and internal discussions with complete privacy.
 * **Save as Word or Text:** Export the transcript as a Word (.docx) file or a text file, with speaker names, times, and (if you choose) your notes.
 * **Locked on Your PC:** Receipts, meeting notes, transcripts, and recordings are stored encrypted, so a copied folder or a lost laptop doesn't give them away.
 
-### 6. Good to Know
+### 7. Good to Know
 Aegis Docs is a careful first pass, not a guarantee. Please keep these in mind:
 * **Review before you share.** It can miss things and it can flag harmless ones. Look over every redacted or cleaned file yourself.
 * **Names, signatures, photographs, handwriting, and barcodes can't be found automatically.** Add names under "Also redact these words or names," and draw a box over the rest.
@@ -66,6 +74,10 @@ Aegis Docs is a careful first pass, not a guarantee. Please keep these in mind:
 * **Files you save are not locked.** Redacted documents, reports, exported transcripts, Word files, and audio copies go where you put them, so store them somewhere safe.
 * **Suggested speakers are guesses.** They work from whether your microphone or the computer's sound was active, so they can't separate several people on the same side, and they don't work for an in-person meeting. Lines where both sides were talking are left blank. Check them before you rely on them.
 * **Transcripts can contain mistakes.** The Word export says so at the bottom.
+* **The Shredder can't promise the data is unrecoverable on a solid-state drive** (most laptops), because the drive may keep old copies where no program can reach. Full-disk encryption (BitLocker) is the dependable protection there. It also can't reach backups, cloud-synced copies, or copies you sent elsewhere.
+* **Compare reads PDFs with text recognition,** so a few differences may be reading mistakes, and it compares words only, not formatting or layout. Comparing a PDF with a Word file is the least reliable pairing.
+* **An integrity manifest doesn't prove when it was made by itself,** because anyone can make a new one. Send its list fingerprint to someone independent at the time to fix the date.
+* **Shrink only changes plain colour or gray JPEG pictures.** Other kinds of picture, text and drawings are left alone, so some PDFs can't be made smaller.
 * **Treat reports and logs as confidential.** Found values are partly hidden in them, but they still list your file names and where things were found.
 
 ---

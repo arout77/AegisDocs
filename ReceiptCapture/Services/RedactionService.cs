@@ -39,9 +39,9 @@ public sealed class WindowsRedactionService : IRedactionService
         }
     }
 
-    public async Task<List<string>> ReadPageTextsAsync(string path, IProgress<string> progress)
+    public async Task<List<string>> ReadPageTextsAsync(string path, IProgress<string> progress, string? password = null)
     {
-        var pdf = await LoadAsync(path, null);
+        var pdf = await LoadAsync(path, password);
         var texts = new List<string>();
         for (uint i = 0; i < pdf.PageCount; i++)
         {

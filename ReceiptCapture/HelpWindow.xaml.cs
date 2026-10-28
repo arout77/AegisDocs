@@ -15,8 +15,10 @@ public partial class HelpWindow : Window
         new("Getting started", new[]
         {
             ("What this is",
-             "Aegis Docs has five tabs along the top: Documents (batch PDF tools), Redact (black out private information), " +
+             "Aegis Docs has eight tabs along the top: Documents (batch PDF tools), Redact (black out private information), " +
              "Compliance (check documents for sensitive information and save a report), " +
+             "Compare (see exactly what changed between two versions of a document), " +
+             "Integrity (prove a folder of files hasn't been altered), Shredder (destroy files for good), " +
              "Receipts (capture receipts and invoices) and Meetings (record a meeting and keep notes). " +
              "Everything happens on this PC. Nothing is uploaded anywhere."),
             ("Adding files",
@@ -45,6 +47,15 @@ public partial class HelpWindow : Window
             ("Split",
              "Works on the PDF selected in the list. \"Extract page ranges\" makes one file per comma: \"1-3, 5, 8-\" makes " +
              "three files, and \"8-\" means page 8 to the end. \"Every N pages\" cuts the PDF into equal chunks."),
+            ("Pages",
+             "Works on the PDF selected in the list and saves a new copy. Pick what to do: keep only some pages in a new order " +
+             "(type them as you want them, for example “3, 1, 2, 5-7”; a page can be repeated), delete pages (“2, 4-6”), " +
+             "reverse the page order, or rotate pages (choose right, upside down or left; leave the box empty to turn every page)."),
+            ("Shrink",
+             "Makes every PDF in the list smaller by reducing the pictures inside it, so it is best for scans and photo-heavy files. " +
+             "Text and drawings are left exactly as they are. “Smaller” keeps files good for reading and printing; “Smallest” makes " +
+             "pictures noticeably softer. A file is only saved if it comes out clearly smaller. If nothing could be shrunk you'll be told, " +
+             "and no file is made."),
             ("Bates",
              "Stamps a running page number at the bottom-right of every page. The numbering carries on from one file to the " +
              "next, in list order. Prefix and suffix are optional text around the number; Digits sets how many digits it has."),
@@ -149,6 +160,62 @@ public partial class HelpWindow : Window
             ("A first pass, not a guarantee",
              "This check helps you review documents. It can miss things and it can flag things that are harmless, and it does not certify " +
              "that a document or your organization meets any law or standard. Have a person review the documents too."),
+        }),
+
+        new("Compare", new[]
+        {
+            ("What it does",
+             "Shows every word that was added or removed between two versions of a document, for example a contract the other side sent back. " +
+             "It writes a report where removed words are struck through in red and added words are underlined in green."),
+            ("Choosing the two documents",
+             "Drop two files on the tab (the first becomes the original), or use the two Choose… buttons. Swap exchanges them. " +
+             "PDF, Word (.docx) and text (.txt) files work. For an older .doc or .rtf file, open it in Word and save a copy as .docx or PDF."),
+            ("Reading the result",
+             "Press Compare, then Open report to see it in your web browser (nothing is uploaded), or Save report… to keep it. " +
+             "“Show only the changes” leaves out the parts that didn't change, apart from a little text around each change."),
+            ("PDFs and accuracy",
+             "PDFs are read with text recognition (OCR), so a few differences may be reading mistakes rather than real changes, " +
+             "and big PDFs take a while. Comparing a PDF with a Word file is the least reliable pairing. " +
+             "Only the words are compared, not formatting, images or layout, so treat the report as a reading aid and check anything important against the documents."),
+            ("Keeping it private",
+             "A saved report contains the full text of both documents. Keep it as confidential as they are."),
+        }),
+
+        new("Integrity", new[]
+        {
+            ("What it does",
+             "Makes a list of every file in a folder with a SHA-256 fingerprint for each one. If even one character of a file changes, " +
+             "its fingerprint changes completely. Later you check the folder against the list and see at once whether anything was changed, removed or added."),
+            ("Make a manifest",
+             "On the “Make a manifest” tab choose the folder, add a matter reference and your name if you like, and press Make manifest. " +
+             "Save the manifest file somewhere safe. The report button saves a printable page or a spreadsheet of every file and fingerprint."),
+            ("Pin down the date",
+             "A manifest shows what the files looked like when it was made, but anyone could make a new one later, so by itself it doesn't prove when. " +
+             "Press Copy fingerprint and send the list fingerprint to someone independent at the time, for example in an email to yourself or to the other side. " +
+             "That fixes the date."),
+            ("Check a folder",
+             "On the “Check a folder” tab choose the manifest and the folder, and press Check. You'll see how many files are unchanged, changed, missing or new. " +
+             "Save report… keeps the result. Record in custody log adds a line about the check to the manifest file; the list of files stays as it was."),
+            ("If the manifest was edited",
+             "A manifest knows its own fingerprint. If someone edits the list inside it, you'll be warned and shouldn't rely on it."),
+        }),
+
+        new("Shredder", new[]
+        {
+            ("What it does",
+             "Destroys files and folders for good. Each file is overwritten with random data, emptied, renamed and then deleted. " +
+             "It skips the Recycle Bin, so what you shred can't be brought back with undelete tools."),
+            ("Using it",
+             "Drop files or folders on the tab, or use Add files… and Add folder…. Nothing happens until you press Shred and confirm. " +
+             "Remove and Clear only change the list on screen; they never touch your files. Stop finishes the file being shredded and then stops."),
+            ("Overwrite passes",
+             "One pass is enough on modern drives. Three is the default, and seven takes longer for no practical gain on most drives."),
+            ("What it can't do",
+             "On a solid-state drive (most laptops) the drive can keep old copies of data where no program can reach them, so full-disk encryption (BitLocker) " +
+             "is the only complete protection there. Shredding also can't reach backups, copies in cloud folders such as OneDrive, or copies you emailed or saved elsewhere."),
+            ("Safety",
+             "Aegis Docs refuses to shred a whole drive, Windows or program folders, or your main folders (Documents, Desktop and so on) as a whole. " +
+             "Files inside those folders can be shredded. Shortcuts and links are removed without touching what they point to."),
         }),
 
         new("Receipts", new[]

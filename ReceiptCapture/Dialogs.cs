@@ -24,6 +24,16 @@ public static class Dialogs
         return result == MessageBoxResult.Yes;
     }
 
+    /// <summary>A Yes/No question about something that cannot be undone. The default button is No.</summary>
+    public static bool ConfirmDestructive(DependencyObject anchor, string text)
+    {
+        var owner = Window.GetWindow(anchor);
+        var result = owner != null
+            ? MessageBox.Show(owner, text, Title, MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No)
+            : MessageBox.Show(text, Title, MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+        return result == MessageBoxResult.Yes;
+    }
+
     /// <summary>Asks for a line of text (such as a speaker's new name). Returns what was typed, or null if the person cancelled.</summary>
     public static string? AskText(DependencyObject anchor, string question, string initial)
     {

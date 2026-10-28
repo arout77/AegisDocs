@@ -11,8 +11,11 @@ public interface IRedactionService
     /// </summary>
     Task<List<ScannedPage>> ScanAsync(string path, IProgress<string> progress, int maxPages, string? password = null);
 
-    /// <summary>Renders and OCRs a PDF again and returns the text of each page. Used to double-check a redacted file.</summary>
-    Task<List<string>> ReadPageTextsAsync(string path, IProgress<string> progress);
+    /// <summary>
+    /// Renders and OCRs a PDF again and returns the text of each page. Used to double-check a redacted file and to compare documents.
+    /// Throws <see cref="ReceiptCapture.Core.Pdf.PdfPasswordException"/> when the PDF needs a password (or the one given was wrong).
+    /// </summary>
+    Task<List<string>> ReadPageTextsAsync(string path, IProgress<string> progress, string? password = null);
 
     /// <summary>Draws opaque black boxes onto the page image and returns it as JPEG bytes.</summary>
     byte[] BurnToJpeg(ScannedPage page, IEnumerable<RedactionRegion> regions);

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using PdfSharp.Drawing;
 using PdfSharp.Fonts;
 using PdfSharp.Pdf;
+using PdfSharp.Pdf.Advanced;
 using PdfSharp.Pdf.IO;
 using ReceiptCapture.Core.Documents;
 using ReceiptCapture.Core.Pdf;
@@ -145,6 +146,167 @@ public static class PdfService
             outputs.Add(target);
         }
         return outputs;
+    }
+
+    // ------------------------------------------------------------------
+    // Page tools: reorder / delete, rotate, compress. Each writes a NEW file.
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Writes a copy with exactly the pages given (1-based), in the order given. Leaving a page out deletes it;
+    /// listing a page twice repeats it.
+    /// </summary>
+    public static string ReorderPages(string input, IReadOnlyList<int> pages, string outputFolder, string label)
+    {
+        Directory.CreateDirectory(outputFolder);
+
+        // A page can't be added to a document twice from the same opened source, so every repeat of a page comes from
+        // its own fresh opening of the file.
+        var sources = new List<PdfDocument>();
+        try
+        {
+            var uses = new Dictionary<int, int>();
+            using var output = new PdfDocument();
+
+            foreach (var number in pages)
+            {
+                uses.TryGetValue(number, out int occurrence);
+                uses[number] = occurrence + 1;
+
+                while (sources.Count <= occurrence)
+                    sources.Add(OpenPdf(input, PdfDocumentOpenMode.Import));
+
+                output.AddPage(sources[occurrence].Pages[number - 1]);
+            }
+
+            var target = UniquePath(outputFolder, $"{Path.GetFileNameWithoutExtension(input)} ({label}).pdf");
+            output.Save(target);
+            return target;
+        }
+        finally
+        {
+            foreach (var source in sources) source.Dispose();
+        }
+    }
+
+    /// <summary>Turns the given pages clockwise by <paramref name="degrees"/> (90, 180 or 270) and writes a copy.</summary>
+    public static string RotatePages(string input, ISet<int> pages, int degrees, string outputFolder)
+    {
+        Directory.CreateDirectory(outputFolder);
+
+        using var stampable = OpenForStamping(input);
+        var doc = stampable.Document;
+        for (int i = 0; i < doc.PageCount; i++)
+        {
+            if (!pages.Contains(i + 1)) continue;
+            var page = doc.Pages[i];
+            page.Rotate = PageSelection.Rotated(page.Rotate, degrees);
+        }
+
+        var target = UniquePath(outputFolder, $"{Path.GetFileNameWithoutExtension(input)} (rotated).pdf");
+        doc.Save(target);
+        return target;
+    }
+
+    /// <summary>What compressing one PDF achieved. <see cref="OutputPath"/> is null when it couldn't be made meaningfully smaller (nothing is written then).</summary>
+    public sealed record CompressOutcome(string? OutputPath, int PicturesShrunk, int PicturesLeftAlone, long BytesBefore, long BytesAfter);
+
+    /// <summary>
+    /// Makes a smaller copy by scaling down and re-saving the JPEG pictures inside the PDF. Only plain colour or gray JPEG pictures
+    /// are touched; anything else (masks, ICC profiles, CMYK, text, vector drawings) is left exactly as it was.
+    /// If the result isn't clearly smaller, no file is written.
+    /// </summary>
+    public static CompressOutcome Compress(string input, ShrinkSettings settings, string outputFolder)
+    {
+        Directory.CreateDirectory(outputFolder);
+        long before = new FileInfo(input).Length;
+
+        using var stampable = OpenForStamping(input);
+        var doc = stampable.Document;
+
+        var seen = new HashSet<int>();      // a picture used on several pages is shrunk once
+        int shrunk = 0, leftAlone = 0;
+
+        foreach (PdfPage page in doc.Pages)
+        {
+            var xobjects = page.Resources.Elements.GetDictionary("/XObject");
+            if (xobjects == null) continue;
+
+            foreach (var item in xobjects.Elements.Values.ToList())
+            {
+                if (item is not PdfReference reference || reference.Value is not PdfDictionary image) continue;
+                if (!seen.Add(reference.ObjectNumber)) continue;
+
+                var result = TryShrinkPicture(image, settings);
+                if (result == true) shrunk++;
+                else if (result == false) leftAlone++;
+            }
+        }
+
+        if (shrunk == 0) return new CompressOutcome(null, 0, leftAlone, before, before);
+
+        doc.Options.CompressContentStreams = true;
+        doc.Options.NoCompression = false;
+        doc.Options.FlateEncodeMode = PdfFlateEncodeMode.BestCompression;
+
+        var target = UniquePath(outputFolder, $"{Path.GetFileNameWithoutExtension(input)} (compressed).pdf");
+        doc.Save(target);
+
+        // Safety net: the new file must open, have every page, and really be smaller. Otherwise it is thrown away.
+        long after = new FileInfo(target).Length;
+        int expectedPages = doc.PageCount;
+        bool good = after < before;
+        if (good)
+        {
+            try
+            {
+                using var check = PdfReader.Open(target, PdfDocumentOpenMode.Import);
+                good = check.PageCount == expectedPages;
+            }
+            catch (Exception)
+            {
+                good = false;
+            }
+        }
+
+        if (!good)
+        {
+            File.Delete(target);
+            return new CompressOutcome(null, 0, leftAlone + shrunk, before, before);
+        }
+        return new CompressOutcome(target, shrunk, leftAlone, before, after);
+    }
+
+    /// <summary>True: shrunk. False: a picture that was left alone. Null: not a picture at all.</summary>
+    private static bool? TryShrinkPicture(PdfDictionary image, ShrinkSettings settings)
+    {
+        try
+        {
+            if (image.Elements.GetName("/Subtype") != "/Image") return null;
+
+            // Only a plain, single-filter JPEG with an ordinary colour description is safe to redo.
+            if (image.Elements.GetName("/Filter") != "/DCTDecode") return false;
+            if (image.Elements.ContainsKey("/SMask") || image.Elements.ContainsKey("/Mask")
+                || image.Elements.ContainsKey("/Decode") || image.Elements.ContainsKey("/ImageMask")) return false;
+
+            var colourSpace = image.Elements.GetName("/ColorSpace");
+            if (colourSpace != "/DeviceRGB" && colourSpace != "/DeviceGray") return false;
+            if (image.Elements.GetInteger("/BitsPerComponent") != 8) return false;
+
+            var original = image.Stream.Value;
+            var shrunk = JpegShrinker.Reencode(original, grayscale: colourSpace == "/DeviceGray", settings);
+            if (shrunk == null || !ImageShrink.WorthKeeping(original.Length, shrunk.Bytes.Length)) return false;
+
+            image.Stream.Value = shrunk.Bytes;                 // also updates /Length
+            image.Elements.SetInteger("/Width", shrunk.Width);
+            image.Elements.SetInteger("/Height", shrunk.Height);
+            return true;
+        }
+        catch (InvalidCastException)
+        {
+            // An entry written as a list or reference of a kind we don't handle (for example an ICC colour profile): leave the picture alone.
+            return false;
+        }
     }
 
     /// <summary>"name.pdf", or "name (2).pdf" etc. if that file already exists.</summary>

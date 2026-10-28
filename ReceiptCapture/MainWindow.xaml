@@ -20,6 +20,15 @@
             <TabItem Header="Compliance" Style="{StaticResource NavTabItem}">
                 <local:ComplianceView/>
             </TabItem>
+            <TabItem Header="Compare" Style="{StaticResource NavTabItem}">
+                <local:CompareView/>
+            </TabItem>
+            <TabItem Header="Integrity" Style="{StaticResource NavTabItem}">
+                <local:IntegrityView/>
+            </TabItem>
+            <TabItem Header="Shredder" Style="{StaticResource NavTabItem}">
+                <local:ShredderView/>
+            </TabItem>
             <TabItem Header="Receipts" Style="{StaticResource NavTabItem}">
                 <local:ReceiptsView/>
             </TabItem>

@@ -94,6 +94,8 @@ public sealed class DocumentsViewModel : ObservableObject
         BatesCommand = new RelayCommand(async () => await BatesAsync(), () => !IsBusy);
         WatermarkCommand = new RelayCommand(async () => await WatermarkAsync(), () => !IsBusy);
         RenameCommand = new RelayCommand(async () => await RenameAsync(), () => !IsBusy);
+        PagesCommand = new RelayCommand(async () => await PagesAsync(), () => !IsBusy);
+        CompressCommand = new RelayCommand(async () => await CompressAsync(), () => !IsBusy);
 
         UpdateRenamePreview();
     }
@@ -184,6 +186,60 @@ public sealed class DocumentsViewModel : ObservableObject
         private set => SetProperty(ref _renamePreview, value);
     }
 
+    // ---- page tools (Pages and Shrink tabs) ----
+    private int _pageActionIndex;
+    private string _pagesSpec = "";
+    private int _rotateIndex;
+    private int _compressIndex;
+
+    public IReadOnlyList<string> PageActions { get; } = new[]
+    {
+        "Keep these pages, in this order",
+        "Delete these pages",
+        "Reverse the page order",
+        "Rotate these pages",
+    };
+
+    public IReadOnlyList<string> RotateChoices { get; } = new[]
+    {
+        "Right (clockwise 90°)",
+        "Upside down (180°)",
+        "Left (counter-clockwise 90°)",
+    };
+
+    public IReadOnlyList<string> CompressLevels { get; } = new[]
+    {
+        "Smaller (still good for reading and printing)",
+        "Smallest (pictures get noticeably softer)",
+    };
+
+    public int PageActionIndex
+    {
+        get => _pageActionIndex;
+        set
+        {
+            if (!SetProperty(ref _pageActionIndex, value)) return;
+            OnPropertyChanged(nameof(PagesNeedList));
+            OnPropertyChanged(nameof(PagesNeedRotation));
+            OnPropertyChanged(nameof(PagesHint));
+        }
+    }
+
+    public bool PagesNeedList => PageActionIndex != 2;
+    public bool PagesNeedRotation => PageActionIndex == 3;
+
+    public string PagesHint => PageActionIndex switch
+    {
+        0 => "Type the pages in the order you want them, for example 3, 1, 2, 5-7. Pages you leave out are dropped, and a page can be repeated.",
+        1 => "Type the pages to remove, for example 2, 4-6.",
+        3 => "Type the pages to turn, for example 2, 4-6. Leave it empty to turn every page.",
+        _ => "Puts the last page first and the first page last.",
+    };
+
+    public string PagesSpec { get => _pagesSpec; set => SetProperty(ref _pagesSpec, value ?? ""); }
+    public int RotateIndex { get => _rotateIndex; set => SetProperty(ref _rotateIndex, value); }
+    public int CompressIndex { get => _compressIndex; set => SetProperty(ref _compressIndex, value); }
+
     // ------------------------------------------------------------------
     // Commands
     // ------------------------------------------------------------------
@@ -199,6 +255,8 @@ public sealed class DocumentsViewModel : ObservableObject
     public ICommand BatesCommand { get; }
     public ICommand WatermarkCommand { get; }
     public ICommand RenameCommand { get; }
+    public ICommand PagesCommand { get; }
+    public ICommand CompressCommand { get; }
 
     // ------------------------------------------------------------------
     // Adding / arranging files
@@ -438,6 +496,82 @@ public sealed class DocumentsViewModel : ObservableObject
             foreach (var item in plan)
                 File.Copy(item.SourcePath, PdfService.UniquePath(folder, item.NewName));
             return $"Copied {plan.Count} file(s) with new names. The originals are untouched.";
+        });
+    }
+
+    private async Task PagesAsync()
+    {
+        if (Selected is not { IsPdf: true } doc)
+        {
+            ShowMessage?.Invoke("Select the PDF you want to change in the list first.");
+            return;
+        }
+
+        int action = PageActionIndex;
+        string spec = PagesSpec;
+        int degrees = new[] { 90, 180, 270 }[Math.Clamp(RotateIndex, 0, 2)];
+
+        await RunAsync("Changing pages", new[] { doc.FilePath }, folder =>
+        {
+            int count = PdfService.GetPageCount(doc.FilePath);
+            string error;
+
+            switch (action)
+            {
+                case 0:
+                {
+                    if (!PageSelection.TryParseOrder(spec, count, out var order, out error)) throw new InvalidOperationException(error);
+                    var path = PdfService.ReorderPages(doc.FilePath, order, folder, "reordered");
+                    return $"Wrote {Path.GetFileName(path)} with {order.Count} page(s). The original is untouched.";
+                }
+                case 1:
+                {
+                    if (!PageSelection.TryParseSet(spec, count, blankMeansAll: false, out var remove, out error)) throw new InvalidOperationException(error);
+                    if (!PageSelection.TryKeepAfterDelete(remove, count, out var keep, out error)) throw new InvalidOperationException(error);
+                    var path = PdfService.ReorderPages(doc.FilePath, keep, folder, "pages removed");
+                    return $"Removed {remove.Count} page(s). {Path.GetFileName(path)} has {keep.Count} left. The original is untouched.";
+                }
+                case 2:
+                {
+                    var path = PdfService.ReorderPages(doc.FilePath, PageSelection.Reverse(count), folder, "reversed");
+                    return $"Wrote {Path.GetFileName(path)} with the pages in reverse order. The original is untouched.";
+                }
+                default:
+                {
+                    if (!PageSelection.TryParseSet(spec, count, blankMeansAll: true, out var turn, out error)) throw new InvalidOperationException(error);
+                    var path = PdfService.RotatePages(doc.FilePath, turn, degrees, folder);
+                    return $"Turned {turn.Count} page(s). Wrote {Path.GetFileName(path)}. The original is untouched.";
+                }
+            }
+        });
+    }
+
+    private async Task CompressAsync()
+    {
+        var pdfs = RequirePdfs(1, "Add the PDFs you want to make smaller first.");
+        if (pdfs == null) return;
+
+        var settings = ImageShrink.For(CompressIndex == 1 ? CompressLevel.Smallest : CompressLevel.Smaller);
+
+        await RunAsync("Making files smaller", pdfs, folder =>
+        {
+            long before = 0, after = 0;
+            int made = 0, skipped = 0;
+
+            foreach (var path in pdfs)
+            {
+                var outcome = PdfService.Compress(path, settings, folder);
+                before += outcome.BytesBefore;
+                if (outcome.OutputPath == null) { skipped++; after += outcome.BytesBefore; }
+                else { made++; after += outcome.BytesAfter; }
+            }
+
+            if (made == 0)
+                return "None of these PDFs could be made meaningfully smaller. They may be mostly text, or their pictures are of a kind this tool leaves alone.";
+
+            return $"Made {made} smaller file(s). {ImageShrink.DescribeSaving(before, after)} in total." +
+                   (skipped > 0 ? $" {skipped} file(s) had nothing worth shrinking and were skipped." : "") +
+                   " The originals are untouched.";
         });
     }
 

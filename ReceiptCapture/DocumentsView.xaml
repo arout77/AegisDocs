@@ -146,6 +146,40 @@
                         </StackPanel>
                     </TabItem>
 
+                    <!-- Pages: reorder, delete, reverse, rotate -->
+                    <TabItem Header="Pages">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource Hint}"
+                                       Text="Rearranges the pages of the PDF selected in the list and saves a new copy."/>
+                            <TextBlock Text="What to do" Style="{StaticResource FieldLabel}"/>
+                            <ComboBox Padding="6,5" ItemsSource="{Binding PageActions}" SelectedIndex="{Binding PageActionIndex, Mode=TwoWay}"/>
+                            <StackPanel Visibility="{Binding PagesNeedList, Converter={StaticResource BoolToVis}}">
+                                <TextBlock Text="Pages" Style="{StaticResource FieldLabel}" Margin="0,10,0,0"/>
+                                <TextBox Style="{StaticResource Input}"
+                                         Text="{Binding PagesSpec, UpdateSourceTrigger=PropertyChanged}"/>
+                            </StackPanel>
+                            <TextBlock Style="{StaticResource Hint}" Margin="0,6,0,0" Text="{Binding PagesHint}"/>
+                            <StackPanel Visibility="{Binding PagesNeedRotation, Converter={StaticResource BoolToVis}}">
+                                <TextBlock Text="Turn them" Style="{StaticResource FieldLabel}" Margin="0,10,0,0"/>
+                                <ComboBox Padding="6,5" ItemsSource="{Binding RotateChoices}" SelectedIndex="{Binding RotateIndex, Mode=TwoWay}"/>
+                            </StackPanel>
+                            <Button Content="Apply" Style="{StaticResource PrimaryButton}" Margin="0,16,0,0"
+                                    HorizontalAlignment="Left" Command="{Binding PagesCommand}"/>
+                        </StackPanel>
+                    </TabItem>
+
+                    <!-- Shrink: smaller files -->
+                    <TabItem Header="Shrink">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource Hint}"
+                                       Text="Makes every PDF in the list smaller by reducing the pictures inside it. Best for scanned or photo-heavy files. Text and drawings are left exactly as they are, and a file is only saved if it comes out clearly smaller."/>
+                            <TextBlock Text="How small" Style="{StaticResource FieldLabel}"/>
+                            <ComboBox Padding="6,5" ItemsSource="{Binding CompressLevels}" SelectedIndex="{Binding CompressIndex, Mode=TwoWay}"/>
+                            <Button Content="Make smaller" Style="{StaticResource PrimaryButton}" Margin="0,16,0,0"
+                                    HorizontalAlignment="Left" Command="{Binding CompressCommand}"/>
+                        </StackPanel>
+                    </TabItem>
+
                     <!-- Bates -->
                     <TabItem Header="Bates">
                         <StackPanel>

@@ -1,0 +1,170 @@
+<UserControl x:Class="ReceiptCapture.IntegrityView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{DynamicResource BgBrush}"
+             AllowDrop="True"
+             PreviewDragOver="View_PreviewDragOver"
+             PreviewDrop="View_PreviewDrop">
+
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
+        </Style>
+        <Style x:Key="Pick" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
+            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Margin="16">
+        <Border Style="{StaticResource Card}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0" MaxWidth="900" HorizontalAlignment="Left" Margin="0,0,0,10">
+                    <TextBlock Text="Integrity and chain of custody" FontSize="16" FontWeight="SemiBold"
+                               Foreground="{DynamicResource InkBrush}" Margin="0,0,0,8"/>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Makes a list of every file in a folder with a SHA-256 fingerprint for each. Later, check the folder against the list to prove nothing was changed, removed or added. A custody log records who made and checked the list, and when."/>
+                </StackPanel>
+
+                <TabControl x:Name="ModeTabs" Grid.Row="1" Padding="12">
+
+                    <!-- ============ Make a manifest ============ -->
+                    <TabItem Header="Make a manifest">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel MaxWidth="860" HorizontalAlignment="Left">
+
+                                <TextBlock Text="Folder to fingerprint" Style="{StaticResource FieldLabel}"/>
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding CreateFolderText}" Style="{StaticResource Pick}"/>
+                                    <Button Grid.Column="1" Content="Choose folder…" Style="{StaticResource SecondaryButton}"
+                                            Margin="10,0,0,0" Command="{Binding ChooseCreateFolderCommand}"/>
+                                </Grid>
+
+                                <TextBlock Text="Matter or case reference (optional)" Style="{StaticResource FieldLabel}"/>
+                                <TextBox Style="{StaticResource Input}" Text="{Binding Matter, UpdateSourceTrigger=PropertyChanged}"/>
+
+                                <TextBlock Text="Prepared by (optional)" Style="{StaticResource FieldLabel}" Margin="0,10,0,0"/>
+                                <TextBox Style="{StaticResource Input}" Text="{Binding PreparedBy, UpdateSourceTrigger=PropertyChanged}"/>
+
+                                <TextBlock Text="Notes (optional)" Style="{StaticResource FieldLabel}" Margin="0,10,0,0"/>
+                                <TextBox Style="{StaticResource Input}" Text="{Binding Notes, UpdateSourceTrigger=PropertyChanged}"
+                                         AcceptsReturn="True" TextWrapping="Wrap" MinHeight="56"/>
+
+                                <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                                    <Button Content="Make manifest" Style="{StaticResource PrimaryButton}"
+                                            Command="{Binding CreateCommand}"/>
+                                    <Button Content="Stop" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
+                                            Command="{Binding StopCommand}"/>
+                                    <ProgressBar IsIndeterminate="True" Height="3" Width="140" Margin="14,0,0,0"
+                                                 VerticalAlignment="Center"
+                                                 Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}"/>
+                                </StackPanel>
+
+                                <Border Margin="0,16,0,0" Padding="14" CornerRadius="8" BorderThickness="1"
+                                        BorderBrush="{DynamicResource LineBrush}"
+                                        Visibility="{Binding HasCreated, Converter={StaticResource BoolToVis}}">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding CreatedSummary}" TextWrapping="Wrap"
+                                                   Foreground="{DynamicResource InkBrush}"/>
+                                        <TextBlock Text="List fingerprint" Style="{StaticResource FieldLabel}" Margin="0,12,0,0"/>
+                                        <TextBox Style="{StaticResource Input}" IsReadOnly="True" FontFamily="Consolas"
+                                                 TextWrapping="Wrap" Text="{Binding CreatedFingerprint, Mode=OneWay}"/>
+                                        <TextBlock Style="{StaticResource Hint}" Margin="0,6,0,0"
+                                                   Text="Send this code to someone independent now (an email to yourself or the other side). It fixes the date the list was made."/>
+                                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                            <Button Content="Save manifest…" Style="{StaticResource PrimaryButton}"
+                                                    Command="{Binding SaveManifestCommand}"/>
+                                            <Button Content="Save report…" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
+                                                    ToolTip="A printable page (or a spreadsheet) listing every file and its fingerprint."
+                                                    Command="{Binding SaveCreatedReportCommand}"/>
+                                            <Button Content="Copy fingerprint" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
+                                                    Command="{Binding CopyFingerprintCommand}"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+
+                    <!-- ============ Check a folder ============ -->
+                    <TabItem Header="Check a folder">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel MaxWidth="860" HorizontalAlignment="Left">
+
+                                <TextBlock Text="Manifest" Style="{StaticResource FieldLabel}"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding ManifestText}" Style="{StaticResource Pick}"/>
+                                    <Button Grid.Column="1" Content="Choose manifest…" Style="{StaticResource SecondaryButton}"
+                                            Margin="10,0,0,0" Command="{Binding ChooseManifestCommand}"/>
+                                </Grid>
+                                <TextBlock Text="{Binding ManifestDetails}" Style="{StaticResource Hint}" Margin="0,4,0,10"/>
+
+                                <TextBlock Text="Folder to check" Style="{StaticResource FieldLabel}"/>
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding CheckFolderText}" Style="{StaticResource Pick}"/>
+                                    <Button Grid.Column="1" Content="Choose folder…" Style="{StaticResource SecondaryButton}"
+                                            Margin="10,0,0,0" Command="{Binding ChooseCheckFolderCommand}"/>
+                                </Grid>
+
+                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                    <Button Content="Check" Style="{StaticResource PrimaryButton}"
+                                            Command="{Binding CheckCommand}"/>
+                                    <Button Content="Stop" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
+                                            Command="{Binding StopCommand}"/>
+                                    <ProgressBar IsIndeterminate="True" Height="3" Width="140" Margin="14,0,0,0"
+                                                 VerticalAlignment="Center"
+                                                 Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}"/>
+                                </StackPanel>
+
+                                <Border Margin="0,16,0,0" Padding="14" CornerRadius="8" BorderThickness="1"
+                                        BorderBrush="{DynamicResource LineBrush}"
+                                        Visibility="{Binding HasChecked, Converter={StaticResource BoolToVis}}">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding CheckSummary}" TextWrapping="Wrap" FontSize="14"
+                                                   Foreground="{DynamicResource InkBrush}"/>
+                                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                            <Button Content="Save report…" Style="{StaticResource PrimaryButton}"
+                                                    ToolTip="A printable page (or a spreadsheet) with the result and every file's fingerprint."
+                                                    Command="{Binding SaveCheckReportCommand}"/>
+                                            <Button Content="Record in custody log" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
+                                                    ToolTip="Adds a line about this check to the manifest file. The list of files is not changed."
+                                                    Command="{Binding RecordCheckCommand}"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+                </TabControl>
+
+                <TextBlock Grid.Row="2" Text="{Binding Status}" Foreground="{DynamicResource MutedBrush}"
+                           TextTrimming="CharacterEllipsis" Margin="0,10,0,0"/>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>
