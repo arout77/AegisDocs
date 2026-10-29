@@ -113,6 +113,44 @@
         </Setter>
     </Style>
 
+    <!-- The main tab control: our own template, so the selected tab's page always fills all the space
+         below the tab strip (the stock template let pages shrink to their content). -->
+    <Style x:Key="NavTabControl" TargetType="TabControl">
+        <Setter Property="OverridesDefaultStyle" Value="True"/>
+        <Setter Property="Background" Value="{DynamicResource BgBrush}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        <Setter Property="VerticalAlignment" Value="Stretch"/>
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        <Setter Property="VerticalContentAlignment" Value="Stretch"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TabControl">
+                    <Grid SnapsToDevicePixels="True" KeyboardNavigation.TabNavigation="Local">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <Border Grid.Row="0" Background="{DynamicResource ChromeBrush}" Padding="6,0,6,0">
+                            <TabPanel x:Name="HeaderPanel" IsItemsHost="True" Margin="0"
+                                      KeyboardNavigation.TabIndex="1"/>
+                        </Border>
+                        <Border Grid.Row="1" Background="{TemplateBinding Background}"
+                                KeyboardNavigation.DirectionalNavigation="Contained"
+                                KeyboardNavigation.TabIndex="2"
+                                KeyboardNavigation.TabNavigation="Local">
+                            <ContentPresenter x:Name="PART_SelectedContentHost" ContentSource="SelectedContent"
+                                              HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                              Margin="{TemplateBinding Padding}"
+                                              SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
+                        </Border>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- Top-level tabs (Documents / Redact / Receipts). No background box: the active tab "lights up"
          instead, with accent-coloured text and a short accent bar underneath. -->
     <Style x:Key="NavTabItem" TargetType="TabItem">
@@ -165,15 +203,15 @@
                 <ControlTemplate TargetType="GridSplitter">
                     <Grid Background="Transparent">
                         <Border x:Name="Grip" Width="4" Height="56" CornerRadius="2"
-                                Background="{DynamicResource ChromeMutedBrush}" Opacity="0.35"/>
+                                Background="{DynamicResource MutedBrush}" Opacity="0.35"/>
                     </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Grip" Property="Background" Value="{DynamicResource ChromeAccentBrush}"/>
+                            <Setter TargetName="Grip" Property="Background" Value="{DynamicResource AccentBrush}"/>
                             <Setter TargetName="Grip" Property="Opacity" Value="1"/>
                         </Trigger>
                         <Trigger Property="IsDragging" Value="True">
-                            <Setter TargetName="Grip" Property="Background" Value="{DynamicResource ChromeAccentBrush}"/>
+                            <Setter TargetName="Grip" Property="Background" Value="{DynamicResource AccentBrush}"/>
                             <Setter TargetName="Grip" Property="Opacity" Value="1"/>
                         </Trigger>
                     </ControlTemplate.Triggers>

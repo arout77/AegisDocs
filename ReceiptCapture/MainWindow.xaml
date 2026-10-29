@@ -6,13 +6,11 @@
         ui:WindowHelper.UseModernWindowStyle="True"
         Title="Aegis Docs" Icon="Assets/AegisDocs.ico" Width="1280" Height="780" MinWidth="1000" MinHeight="620"
         WindowStartupLocation="CenterScreen"
-        Background="{DynamicResource ChromeBrush}"
+        Background="{DynamicResource BgBrush}"
         FontFamily="{DynamicResource AppFont}" FontSize="13">
 
     <Grid>
-        <TabControl Padding="0" BorderThickness="0" Background="{DynamicResource ChromeBrush}"
-                    HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                    HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
+        <TabControl Style="{StaticResource NavTabControl}">
             <TabItem Header="Documents" Style="{StaticResource NavTabItem}">
                 <local:DocumentsView/>
             </TabItem>

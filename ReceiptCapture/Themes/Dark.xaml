@@ -17,8 +17,8 @@
     <SolidColorBrush x:Key="DangerBrush" Color="#F87171"/>
     <SolidColorBrush x:Key="HoverBrush" Color="#222736"/>
 
-    <!-- Chrome: the top tab bar and the frame around the content. Identical in Light and Dark,
-         so light mode keeps the dark navy frame with light panels inside it. -->
+    <!-- Top bar (tab strip and the Updates / Help / Theme buttons): dark navy in dark mode.
+         Light.xaml defines the same keys in indigo. -->
     <SolidColorBrush x:Key="ChromeBrush" Color="#0D0F15"/>
     <SolidColorBrush x:Key="ChromeSurfaceBrush" Color="#1C202B"/>
     <SolidColorBrush x:Key="ChromeLineBrush" Color="#272C3A"/>
