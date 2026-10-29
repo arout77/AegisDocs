@@ -82,12 +82,43 @@
         </Setter>
     </Style>
 
+    <!-- Buttons that sit on the dark top bar (Updates / Help / Theme) -->
+    <Style x:Key="ChromeButton" TargetType="Button">
+        <Setter Property="Foreground" Value="{DynamicResource ChromeInkBrush}"/>
+        <Setter Property="Background" Value="{DynamicResource ChromeSurfaceBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource ChromeLineBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="FontFamily" Value="{DynamicResource HeadingFont}"/>
+        <Setter Property="Padding" Value="14,8"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="9" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ChromeHoverBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Bd" Property="Opacity" Value="0.4"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- Top-level tabs (Documents / Redact / Receipts). No background box: the active tab "lights up"
          instead, with accent-coloured text and a short accent bar underneath. -->
     <Style x:Key="NavTabItem" TargetType="TabItem">
         <Setter Property="OverridesDefaultStyle" Value="True"/>
         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-        <Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource ChromeMutedBrush}"/>
         <Setter Property="FontFamily" Value="{DynamicResource HeadingFont}"/>
         <Setter Property="FontSize" Value="13.5"/>
         <Setter Property="Padding" Value="18,8"/>
@@ -102,14 +133,14 @@
                                           RecognizesAccessKey="True"/>
                         <Border x:Name="Indicator" Height="3" CornerRadius="2" Margin="14,0,14,0"
                                 VerticalAlignment="Bottom" Visibility="Collapsed"
-                                Background="{DynamicResource AccentBrush}"/>
+                                Background="{DynamicResource ChromeAccentBrush}"/>
                     </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource ChromeInkBrush}"/>
                         </Trigger>
                         <Trigger Property="IsSelected" Value="True">
-                            <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource ChromeAccentTextBrush}"/>
                             <Setter TargetName="Indicator" Property="Visibility" Value="Visible"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
@@ -134,15 +165,15 @@
                 <ControlTemplate TargetType="GridSplitter">
                     <Grid Background="Transparent">
                         <Border x:Name="Grip" Width="4" Height="56" CornerRadius="2"
-                                Background="{DynamicResource MutedBrush}" Opacity="0.35"/>
+                                Background="{DynamicResource ChromeMutedBrush}" Opacity="0.35"/>
                     </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Grip" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                            <Setter TargetName="Grip" Property="Background" Value="{DynamicResource ChromeAccentBrush}"/>
                             <Setter TargetName="Grip" Property="Opacity" Value="1"/>
                         </Trigger>
                         <Trigger Property="IsDragging" Value="True">
-                            <Setter TargetName="Grip" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                            <Setter TargetName="Grip" Property="Background" Value="{DynamicResource ChromeAccentBrush}"/>
                             <Setter TargetName="Grip" Property="Opacity" Value="1"/>
                         </Trigger>
                     </ControlTemplate.Triggers>

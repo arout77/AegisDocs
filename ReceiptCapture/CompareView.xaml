@@ -1,7 +1,7 @@
 <UserControl x:Class="ReceiptCapture.CompareView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Background="{DynamicResource BgBrush}"
+             Background="{DynamicResource ChromeBrush}"
              AllowDrop="True"
              PreviewDragOver="View_PreviewDragOver"
              PreviewDrop="View_PreviewDrop">
@@ -18,15 +18,24 @@
 
     <Grid Margin="16">
         <Border Style="{StaticResource Card}">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <StackPanel MaxWidth="900" HorizontalAlignment="Left">
+            <!-- The grid is at least as tall as the visible area, so the Original / Revised boxes
+                 grow to use the free space; if the window is very short, the page scrolls instead. -->
+            <ScrollViewer x:Name="Scroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <Grid MinHeight="{Binding ViewportHeight, ElementName=Scroller}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*" MinHeight="120"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
 
-                    <TextBlock Text="Compare two documents" FontSize="16" FontWeight="SemiBold"
-                               Foreground="{DynamicResource InkBrush}" Margin="0,0,0,8"/>
-                    <TextBlock Style="{StaticResource Hint}"
-                               Text="Finds every word that was added or removed between two versions of a document, and writes a report with the changes marked: removed words struck through in red, added words underlined in green. Drop two files anywhere on this tab, or choose them below."/>
+                    <StackPanel Grid.Row="0">
+                        <TextBlock Text="Compare two documents" FontSize="16" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource InkBrush}" Margin="0,0,0,8"/>
+                        <TextBlock Style="{StaticResource Hint}"
+                                   Text="Finds every word that was added or removed between two versions of a document, and writes a report with the changes marked: removed words struck through in red, added words underlined in green. Drop two files anywhere on this tab, or choose them below."/>
+                    </StackPanel>
 
-                    <Grid Margin="0,12,0,0">
+                    <Grid Grid.Row="1" Margin="0,12,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="12"/>
@@ -34,7 +43,7 @@
                         </Grid.ColumnDefinitions>
 
                         <Border Grid.Column="0" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="8" Padding="14">
-                            <StackPanel>
+                            <StackPanel VerticalAlignment="Center">
                                 <TextBlock Text="Original" Style="{StaticResource FieldLabel}"/>
                                 <TextBlock Text="{Binding OriginalText}" FontSize="15" FontWeight="SemiBold"
                                            Foreground="{DynamicResource InkBrush}" TextTrimming="CharacterEllipsis"
@@ -46,7 +55,7 @@
                         </Border>
 
                         <Border Grid.Column="2" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="8" Padding="14">
-                            <StackPanel>
+                            <StackPanel VerticalAlignment="Center">
                                 <TextBlock Text="Revised" Style="{StaticResource FieldLabel}"/>
                                 <TextBlock Text="{Binding RevisedText}" FontSize="15" FontWeight="SemiBold"
                                            Foreground="{DynamicResource InkBrush}" TextTrimming="CharacterEllipsis"
@@ -58,49 +67,51 @@
                         </Border>
                     </Grid>
 
-                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                        <Button Content="Swap" Style="{StaticResource SecondaryButton}"
-                                ToolTip="Exchange which document is the original and which is the revised one."
-                                Command="{Binding SwapCommand}"/>
-                        <Button Content="Clear" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
-                                ToolTip="Forgets both choices. No files are touched."
-                                Command="{Binding ClearCommand}"/>
-                    </StackPanel>
-
-                    <CheckBox Content="Show only the changes (with a little text around each)" Margin="0,16,0,0"
-                              IsChecked="{Binding ChangesOnly}"/>
-                    <CheckBox Content="Ignore capital letters (treat “Fee” and “fee” as the same)" Margin="0,6,0,0"
-                              IsChecked="{Binding IgnoreCase}"/>
-
-                    <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
-                        <Button Content="Compare" Style="{StaticResource PrimaryButton}"
-                                Command="{Binding CompareCommand}"/>
-                        <ProgressBar IsIndeterminate="True" Height="3" Width="140" Margin="14,0,0,0"
-                                     VerticalAlignment="Center"
-                                     Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}"/>
-                    </StackPanel>
-
-                    <TextBlock Text="{Binding Status}" Style="{StaticResource Hint}" Margin="0,10,0,0"/>
-
-                    <Border Margin="0,12,0,0" Padding="14" CornerRadius="8" BorderThickness="1"
-                            BorderBrush="{DynamicResource LineBrush}"
-                            Visibility="{Binding HasResult, Converter={StaticResource BoolToVis}}">
-                        <StackPanel>
-                            <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" FontSize="14"
-                                       Foreground="{DynamicResource InkBrush}"/>
-                            <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-                                <Button Content="Open report" Style="{StaticResource PrimaryButton}"
-                                        ToolTip="Opens the marked-up comparison in your web browser. Nothing is uploaded."
-                                        Command="{Binding OpenReportCommand}"/>
-                                <Button Content="Save report…" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
-                                        Command="{Binding SaveReportCommand}"/>
-                            </StackPanel>
+                    <StackPanel Grid.Row="2">
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                            <Button Content="Swap" Style="{StaticResource SecondaryButton}"
+                                    ToolTip="Exchange which document is the original and which is the revised one."
+                                    Command="{Binding SwapCommand}"/>
+                            <Button Content="Clear" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
+                                    ToolTip="Forgets both choices. No files are touched."
+                                    Command="{Binding ClearCommand}"/>
                         </StackPanel>
-                    </Border>
 
-                    <TextBlock Style="{StaticResource Hint}" Margin="0,18,0,0"
-                               Text="Works with PDF, Word (.docx) and text (.txt) files. PDFs are read with text recognition, so a few differences may be reading mistakes; large PDFs take a while. The report contains the full text of both documents, so keep it as confidential as they are."/>
-                </StackPanel>
+                        <CheckBox Content="Show only the changes (with a little text around each)" Margin="0,16,0,0"
+                                  IsChecked="{Binding ChangesOnly}"/>
+                        <CheckBox Content="Ignore capital letters (treat “Fee” and “fee” as the same)" Margin="0,6,0,0"
+                                  IsChecked="{Binding IgnoreCase}"/>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
+                            <Button Content="Compare" Style="{StaticResource PrimaryButton}"
+                                    Command="{Binding CompareCommand}"/>
+                            <ProgressBar IsIndeterminate="True" Height="3" Width="140" Margin="14,0,0,0"
+                                         VerticalAlignment="Center"
+                                         Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}"/>
+                        </StackPanel>
+
+                        <TextBlock Text="{Binding Status}" Style="{StaticResource Hint}" Margin="0,10,0,0"/>
+
+                        <Border Margin="0,12,0,0" Padding="14" CornerRadius="8" BorderThickness="1"
+                                BorderBrush="{DynamicResource LineBrush}"
+                                Visibility="{Binding HasResult, Converter={StaticResource BoolToVis}}">
+                            <StackPanel>
+                                <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" FontSize="14"
+                                           Foreground="{DynamicResource InkBrush}"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                    <Button Content="Open report" Style="{StaticResource PrimaryButton}"
+                                            ToolTip="Opens the marked-up comparison in your web browser. Nothing is uploaded."
+                                            Command="{Binding OpenReportCommand}"/>
+                                    <Button Content="Save report…" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
+                                            Command="{Binding SaveReportCommand}"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Style="{StaticResource Hint}" Margin="0,18,0,0"
+                                   Text="Works with PDF, Word (.docx) and text (.txt) files. PDFs are read with text recognition, so a few differences may be reading mistakes; large PDFs take a while. The report contains the full text of both documents, so keep it as confidential as they are."/>
+                    </StackPanel>
+                </Grid>
             </ScrollViewer>
         </Border>
     </Grid>

@@ -18,7 +18,7 @@ public static class AppTheme
     private static readonly Color LightAccent = Color.FromRgb(0x4F, 0x46, 0xE5);
     private static readonly Color DarkAccent = Color.FromRgb(0x63, 0x66, 0xF1);
 
-    private static ThemeChoice _choice = ThemeChoice.System;
+    private static ThemeChoice _choice = ThemeChoice.Light;
 
     public static ThemeChoice Choice => _choice;
     public static bool IsDark { get; private set; }
@@ -134,20 +134,20 @@ public static class AppTheme
     // ------------------------------------------------------------------
     internal sealed class Settings
     {
-        public string Theme { get; set; } = nameof(ThemeChoice.System);
+        public string Theme { get; set; } = nameof(ThemeChoice.Light);
     }
 
     private static ThemeChoice LoadChoice()
     {
         try
         {
-            if (!File.Exists(AppPaths.SettingsFile)) return ThemeChoice.System;
+            if (!File.Exists(AppPaths.SettingsFile)) return ThemeChoice.Light;
             var settings = JsonSerializer.Deserialize<Settings>(File.ReadAllText(AppPaths.SettingsFile));
-            return Enum.TryParse<ThemeChoice>(settings?.Theme, out var choice) ? choice : ThemeChoice.System;
+            return Enum.TryParse<ThemeChoice>(settings?.Theme, out var choice) ? choice : ThemeChoice.Light;
         }
         catch (Exception)
         {
-            return ThemeChoice.System;
+            return ThemeChoice.Light;
         }
     }
 

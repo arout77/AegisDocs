@@ -1,7 +1,7 @@
 <UserControl x:Class="ReceiptCapture.IntegrityView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Background="{DynamicResource BgBrush}"
+             Background="{DynamicResource ChromeBrush}"
              AllowDrop="True"
              PreviewDragOver="View_PreviewDragOver"
              PreviewDrop="View_PreviewDrop">
@@ -32,7 +32,7 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <StackPanel Grid.Row="0" MaxWidth="900" HorizontalAlignment="Left" Margin="0,0,0,10">
+                <StackPanel Grid.Row="0" Margin="0,0,0,10">
                     <TextBlock Text="Integrity and chain of custody" FontSize="16" FontWeight="SemiBold"
                                Foreground="{DynamicResource InkBrush}" Margin="0,0,0,8"/>
                     <TextBlock Style="{StaticResource Hint}"
@@ -44,7 +44,7 @@
                     <!-- ============ Make a manifest ============ -->
                     <TabItem Header="Make a manifest">
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
-                            <StackPanel MaxWidth="860" HorizontalAlignment="Left">
+                            <StackPanel>
 
                                 <TextBlock Text="Folder to fingerprint" Style="{StaticResource FieldLabel}"/>
                                 <Grid Margin="0,0,0,10">
@@ -106,7 +106,7 @@
                     <!-- ============ Check a folder ============ -->
                     <TabItem Header="Check a folder">
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
-                            <StackPanel MaxWidth="860" HorizontalAlignment="Left">
+                            <StackPanel>
 
                                 <TextBlock Text="Manifest" Style="{StaticResource FieldLabel}"/>
                                 <Grid>

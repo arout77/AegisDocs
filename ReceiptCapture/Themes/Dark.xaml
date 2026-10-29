@@ -17,6 +17,17 @@
     <SolidColorBrush x:Key="DangerBrush" Color="#F87171"/>
     <SolidColorBrush x:Key="HoverBrush" Color="#222736"/>
 
+    <!-- Chrome: the top tab bar and the frame around the content. Identical in Light and Dark,
+         so light mode keeps the dark navy frame with light panels inside it. -->
+    <SolidColorBrush x:Key="ChromeBrush" Color="#0D0F15"/>
+    <SolidColorBrush x:Key="ChromeSurfaceBrush" Color="#1C202B"/>
+    <SolidColorBrush x:Key="ChromeLineBrush" Color="#272C3A"/>
+    <SolidColorBrush x:Key="ChromeHoverBrush" Color="#222736"/>
+    <SolidColorBrush x:Key="ChromeInkBrush" Color="#E9ECF4"/>
+    <SolidColorBrush x:Key="ChromeMutedBrush" Color="#9099AE"/>
+    <SolidColorBrush x:Key="ChromeAccentBrush" Color="#6366F1"/>
+    <SolidColorBrush x:Key="ChromeAccentTextBrush" Color="#9A9DFF"/>
+
     <!-- Dark-only overrides of ModernWpf's own tab colours, used by the Tools tabs (Merge / Split / ...).
          Light.xaml has no such entries on purpose, so light mode keeps ModernWpf's look untouched. -->
     <SolidColorBrush x:Key="TabViewBackground" Color="#0B0D13"/>

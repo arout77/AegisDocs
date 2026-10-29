@@ -6,11 +6,13 @@
         ui:WindowHelper.UseModernWindowStyle="True"
         Title="Aegis Docs" Icon="Assets/AegisDocs.ico" Width="1280" Height="780" MinWidth="1000" MinHeight="620"
         WindowStartupLocation="CenterScreen"
-        Background="{DynamicResource BgBrush}"
+        Background="{DynamicResource ChromeBrush}"
         FontFamily="{DynamicResource AppFont}" FontSize="13">
 
     <Grid>
-        <TabControl Padding="0" BorderThickness="0" Background="{DynamicResource BgBrush}">
+        <TabControl Padding="0" BorderThickness="0" Background="{DynamicResource ChromeBrush}"
+                    HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                    HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
             <TabItem Header="Documents" Style="{StaticResource NavTabItem}">
                 <local:DocumentsView/>
             </TabItem>
@@ -39,11 +41,11 @@
 
         <!-- Help and light / dark switch, sitting in the empty space of the tab strip -->
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,5,18,0">
-            <Button x:Name="UpdateButton" Content="Updates" Style="{StaticResource SecondaryButton}" Padding="14,6"
+            <Button x:Name="UpdateButton" Content="Updates" Style="{StaticResource ChromeButton}" Padding="14,6"
                     ToolTip="Check for a new version of Aegis Docs" Click="UpdateButton_Click"/>
-            <Button Content="Help" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" Padding="14,6"
+            <Button Content="Help" Style="{StaticResource ChromeButton}" Margin="8,0,0,0" Padding="14,6"
                     ToolTip="How to use Aegis Docs (F1)" Click="HelpButton_Click"/>
-            <Button x:Name="ThemeButton" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" Padding="14,6"
+            <Button x:Name="ThemeButton" Style="{StaticResource ChromeButton}" Margin="8,0,0,0" Padding="14,6"
                     ToolTip="Switch between Auto (follows Windows), Light and Dark"
                     Click="ThemeButton_Click"/>
         </StackPanel>

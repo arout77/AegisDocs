@@ -17,4 +17,15 @@
     <SolidColorBrush x:Key="WarnBrush" Color="#D97706"/>
     <SolidColorBrush x:Key="DangerBrush" Color="#D92D20"/>
     <SolidColorBrush x:Key="HoverBrush" Color="#EDEFF8"/>
+
+    <!-- Chrome: the top tab bar and the frame around the content. Identical in Light and Dark,
+         so light mode keeps the dark navy frame with light panels inside it. -->
+    <SolidColorBrush x:Key="ChromeBrush" Color="#0D0F15"/>
+    <SolidColorBrush x:Key="ChromeSurfaceBrush" Color="#1C202B"/>
+    <SolidColorBrush x:Key="ChromeLineBrush" Color="#272C3A"/>
+    <SolidColorBrush x:Key="ChromeHoverBrush" Color="#222736"/>
+    <SolidColorBrush x:Key="ChromeInkBrush" Color="#E9ECF4"/>
+    <SolidColorBrush x:Key="ChromeMutedBrush" Color="#9099AE"/>
+    <SolidColorBrush x:Key="ChromeAccentBrush" Color="#6366F1"/>
+    <SolidColorBrush x:Key="ChromeAccentTextBrush" Color="#9A9DFF"/>
 </ResourceDictionary>
