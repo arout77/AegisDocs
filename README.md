@@ -48,7 +48,7 @@ Three extra tools for the moments that matter in legal and compliance work.
 Simplify bookkeeping without exposing financial data to the cloud.
 * **Drag & Drop Simplicity:** Drop in receipts or vendor invoices (PNG, JPG, PDF).
 * **Smart Offline Extraction:** Automatically reads the vendor, date, total, tax, and category for you to review and confirm.
-* **Easy Export:** Keep a clean, searchable list of your expenses ready to export to CSV for Excel or your accountant.
+* **Easy Export:** Keep a clean, searchable list of your expenses ready to export as an Excel workbook (.xlsx) or a CSV file for your accountant.
 
 ### 6. Secure Meetings & Local Transcription
 Capture client consultations and internal discussions with complete privacy.

@@ -49,7 +49,7 @@
                                 Command="{Binding AddFilesCommand}"/>
                         <Button Content="New entry" Style="{StaticResource SecondaryButton}"
                                 Command="{Binding NewCommand}" Margin="8,0,0,0"/>
-                        <Button Content="Export CSV" Style="{StaticResource SecondaryButton}"
+                        <Button Content="Export…" Style="{StaticResource SecondaryButton}"
                                 Command="{Binding ExportCommand}" Margin="8,0,0,0"/>
                     </StackPanel>
                     <ProgressBar IsIndeterminate="True" Height="3" Width="140" HorizontalAlignment="Right"

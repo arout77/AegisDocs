@@ -37,8 +37,8 @@ public partial class ReceiptsView : UserControl
                 var dialog = new SaveFileDialog
                 {
                     Title = "Export receipts",
-                    Filter = "CSV file (opens in Excel)|*.csv",
-                    FileName = $"receipts-{DateTime.Today:yyyy-MM-dd}.csv",
+                    Filter = "Excel workbook (*.xlsx)|*.xlsx|CSV file (*.csv)|*.csv",
+                    FileName = $"receipts-{DateTime.Today:yyyy-MM-dd}",   // the extension follows the type chosen
                 };
                 return dialog.ShowDialog(Window.GetWindow(this)) == true ? dialog.FileName : null;
             },

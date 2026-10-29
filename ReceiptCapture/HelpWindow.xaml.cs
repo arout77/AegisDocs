@@ -236,8 +236,8 @@ public partial class HelpWindow : Window
              "Type in the search box to look through vendors, notes, and the text on the receipts. You can also filter by " +
              "category and by date range. Clear resets all of the filters."),
             ("Exporting",
-             "Export CSV saves the list as a spreadsheet file that opens in Excel. It respects the filters, so filter first " +
-             "to export just one month or category."),
+             "Export saves the list as an Excel workbook (.xlsx) or, if you pick that type in the Save window, as a CSV file. " +
+             "Both open in Excel. It respects the filters, so filter first to export just one month or category."),
             ("Delete",
              "Delete removes the selected entry, and the toolkit's own stored copy of its file, after asking you to confirm. The original file you added stays where it was."),
         }),

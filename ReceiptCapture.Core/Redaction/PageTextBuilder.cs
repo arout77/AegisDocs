@@ -9,7 +9,7 @@ public static class PageTextBuilder
 
     public static Built Build(IReadOnlyList<WordBox> words)
     {
-        var ordered = words.Where(w => !string.IsNullOrWhiteSpace(w.Text))
+        var ordered = CombFieldMerger.Merge(words).Where(w => !string.IsNullOrWhiteSpace(w.Text))
                            .OrderBy(w => w.Line).ThenBy(w => w.X)
                            .ToList();
 

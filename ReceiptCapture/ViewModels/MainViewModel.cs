@@ -512,7 +512,11 @@ public sealed class MainViewModel : ObservableObject
 
         try
         {
-            CsvExporter.Export(items, path);
+            // The Save dialog offers Excel (.xlsx) and CSV; anything else is written as CSV, as before.
+            if (Path.GetExtension(path).Equals(".xlsx", StringComparison.OrdinalIgnoreCase))
+                XlsxExporter.Export(items, path);
+            else
+                CsvExporter.Export(items, path);
             Status = $"Exported {items.Count} receipt(s) to {path}";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

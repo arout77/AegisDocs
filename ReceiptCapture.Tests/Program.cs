@@ -2851,5 +2851,177 @@ List<WordBox> FormField(string label, string value, double labelWidth = 160, dou
 }
 // <<< walker
 
+// >>> comb fields (government forms with one box per digit)
+{
+    // Simulates what OCR returns for the I-90: labels, then values in boxes. 'lineByCell' puts every cell on its own OCR line.
+    const double h = 28;
+    List<WordBox> Page2(string combStyle)
+    {
+        var w = new List<WordBox>();
+        int line = 0;
+        void Add(string t, double x, double y, double width, int ln) => w.Add(new WordBox(t, x, y, width, h, ln));
+
+        // 9. Date of Birth (mm/dd/yyyy)   [02/04/1977]
+        Add("9.", 100, 400, 30, line); Add("Date", 150, 400, 70, line); Add("of", 230, 400, 40, line);
+        Add("Birth", 280, 400, 80, line); Add("(mm/dd/yyyy)", 370, 400, 230, line);
+        line++; Add("02/04/1977", 700, 400, 200, line);
+
+        // 15. Date of Admission (mm/dd/yyyy)   [09/30/1983]  -- must NOT be treated as a birth date
+        line++; Add("15.", 100, 700, 40, line); Add("Date", 150, 700, 70, line); Add("of", 230, 700, 40, line);
+        Add("Admission", 280, 700, 150, line); Add("(mm/dd/yyyy)", 440, 700, 230, line);
+        line++; Add("09/30/1983", 700, 700, 200, line);
+
+        // 16. U.S. Social Security Number (if any)  then, on the next row, nine boxes
+        line++; Add("16.", 100, 800, 40, line); Add("U.S.", 150, 800, 60, line); Add("Social", 220, 800, 90, line);
+        Add("Security", 320, 800, 110, line); Add("Number", 440, 800, 110, line); Add("(if", 560, 800, 40, line); Add("any)", 610, 800, 60, line);
+
+        line++;
+        Add("\u25BA", 250, 860, 30, line);
+        string digits = "214192208";
+        for (int i = 0; i < 9; i++)
+        {
+            double x = 300 + i * 45;
+            switch (combStyle)
+            {
+                case "plain":    Add(digits[i].ToString(), x, 860, 18, line); break;
+                case "borders":  Add("|", x - 14, 860, 6, line); Add(digits[i].ToString(), x, 860, 18, line); break;
+                case "ownline":  line++; Add(digits[i].ToString(), x, 860, 18, line); break;
+                case "stuck":    Add("|" + digits[i] + (i == 8 ? "|" : ""), x - 8, 860, 26, line); break;
+            }
+        }
+        if (combStyle == "oneword")
+        {
+            // everything read as a single word, borders included
+            w.RemoveAll(x => x.Y == 860 && x.Text != "\u25BA");
+            Add("|2|1|4|1|9|2|2|0|8|", 300, 860, 400, line);
+        }
+        return w;
+    }
+
+    foreach (var style in new[] { "plain", "borders", "ownline", "stuck", "oneword" })
+    {
+        var combWords = Page2(style);
+        var combRegions = RedactionMapper.FindRegions(0, combWords, new FindOptions());
+
+        var ssn = combRegions.Where(r => r.Kind == SensitiveKind.Ssn).ToList();
+        Check($"comb [{style}]: the SSN is found", ssn.Count > 0, true);
+        if (ssn.Count > 0)
+        {
+            // The box has to cover the whole row of cells, not just part of it
+            double left = ssn.Min(r => r.X), right = ssn.Max(r => r.X + r.Width);
+            Check($"comb [{style}]: the box starts at the first digit", left <= 300, true);
+            Check($"comb [{style}]: the box reaches the last digit", right >= 300 + 8 * 45 + 18, true);
+            Check($"comb [{style}]: the box stays on the SSN row", ssn.All(r => r.Y >= 800 && r.Y < 900), true);
+        }
+
+        var dob = combRegions.Where(r => r.Kind == SensitiveKind.DateOfBirth).ToList();
+        Check($"comb [{style}]: the birth date is found", dob.Count, 1);
+        if (dob.Count == 1) Check($"comb [{style}]: it is the birth date, not the admission date", dob[0].Y < 500, true);
+    }
+
+    // Ordinary text and numbers are left alone by the digit-merging
+    var prose = new List<WordBox>();
+    string[] bits = { "Page", "1", "of", "3", "Item", "2", "3", "4", "5", "total" };
+    for (int i = 0; i < bits.Length; i++) prose.Add(new WordBox(bits[i], 100 + i * 60, 100, 40, h, 0));
+    Check("comb: a run of page/item numbers is not an SSN", RedactionMapper.FindRegions(0, prose, new FindOptions()).Any(r => r.Kind == SensitiveKind.Ssn), false);
+
+    var normalSsn = new List<WordBox>
+    {
+        new("SSN:", 100, 100, 70, h, 0), new("123", 190, 100, 50, h, 0), new("45", 250, 100, 30, h, 0), new("6789", 290, 100, 70, h, 0),
+    };
+    Check("comb: a normally spaced SSN is still found", RedactionMapper.FindRegions(0, normalSsn, new FindOptions()).Count(r => r.Kind == SensitiveKind.Ssn), 1);
+
+    // A nine-digit comb with no Social Security wording near it (the A-Number) stays untouched
+    var aNumber = new List<WordBox> { new("A-Number", 100, 100, 150, h, 0) };
+    for (int i = 0; i < 9; i++) aNumber.Add(new WordBox("025302870"[i].ToString(), 300 + i * 45, 100, 18, h, 0));
+    Check("comb: an A-Number comb is not mistaken for an SSN", RedactionMapper.FindRegions(0, aNumber, new FindOptions()).Any(r => r.Kind == SensitiveKind.Ssn), false);
+
+    // Page-level text still holds the merged digits, so the verifier and report see one number
+    Check("comb: the page text shows the digits as one number", PageTextBuilder.Build(Page2("plain")).Text.Contains("214192208"), true);
+    // Doubtful letters inside a row of digits, a dashed SSN and a date in boxes
+    List<WordBox> Row(string label, string cells, double y = 100)
+    {
+        var l = new List<WordBox> { new(label, 100, y, 300, h, 0) };
+        int n = 0;
+        foreach (var ch in cells.Where(c => c != ' ')) l.Add(new WordBox(ch.ToString(), 500 + n++ * 45, y + 50, 18, h, 1));
+        return l;
+    }
+    Check("comb: O and l read inside the boxes still count as digits",
+        RedactionMapper.FindRegions(0, Row("Social Security Number", "2l4192O08"), new FindOptions()).Any(r => r.Kind == SensitiveKind.Ssn), true);
+    Check("comb: boxes separated by dashes",
+        RedactionMapper.FindRegions(0, Row("SSN", "214-19-2208"), new FindOptions()).Any(r => r.Kind == SensitiveKind.Ssn), true);
+    Check("comb: a date in boxes after a birth-date label",
+        RedactionMapper.FindRegions(0, Row("Date of Birth", "02/04/1977"), new FindOptions()).Any(r => r.Kind == SensitiveKind.DateOfBirth), true);
+    Check("comb: a ten-box phone number is read as a phone number",
+        RedactionMapper.FindRegions(0, Row("Daytime Phone", "7173793696"), new FindOptions()).Any(r => r.Kind == SensitiveKind.Phone), true);
+    Check("comb: a lone I or l beside a number is not pulled in",
+        PageTextBuilder.Build(new List<WordBox> { new("I", 100, 100, 10, h, 0), new("2", 150, 100, 18, h, 0), new("3", 195, 100, 18, h, 0) }).Text, "I 2 3");
+    Check("comb: nothing to merge returns the same words",
+        PageTextBuilder.Build(new List<WordBox> { new("Hello", 100, 100, 100, h, 0), new("world", 220, 100, 100, h, 0) }).Text, "Hello world");
+}
+// <<< comb fields
+
+// >>> xlsx export
+{
+    var xDate = new DateTime(2026, 3, 14);
+    var xReceipts = new List<Receipt>
+    {
+        new() { Vendor = "FRESH MART", Date = xDate, Total = 7.01m, Tax = 0.53m, Category = "Groceries", Notes = "weekly shop", FilePath = @"C:\Receipts\a.pdf" },
+        new() { Vendor = "=HYPERLINK(\"http://evil\")", Date = xDate.AddDays(1), Total = 1234.5m, Tax = null, Category = "Office", Notes = "R&D <test> \u0001 caf\u00E9", FilePath = null },
+    };
+    var xBytes = XlsxExporter.Build(xReceipts);
+
+    using var xZip = new System.IO.Compression.ZipArchive(new MemoryStream(xBytes), System.IO.Compression.ZipArchiveMode.Read);
+    var xNames = xZip.Entries.Select(e => e.FullName).OrderBy(n => n, StringComparer.Ordinal).ToList();
+    Check("xlsx: the package holds the parts Excel expects", string.Join(",", xNames),
+        "[Content_Types].xml,_rels/.rels,xl/_rels/workbook.xml.rels,xl/styles.xml,xl/workbook.xml,xl/worksheets/sheet1.xml");
+
+    // Every part must be well-formed XML (a stray control character or & would make Excel "repair" the file)
+    bool allParse = true;
+    foreach (var e in xZip.Entries)
+    {
+        try { using var st = e.Open(); System.Xml.Linq.XDocument.Load(st); } catch (Exception) { allParse = false; }
+    }
+    Check("xlsx: every part is well-formed XML", allParse, true);
+
+    System.Xml.Linq.XNamespace ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+    System.Xml.Linq.XDocument sheet;
+    using (var st = xZip.GetEntry("xl/worksheets/sheet1.xml")!.Open()) sheet = System.Xml.Linq.XDocument.Load(st);
+    var xRows = sheet.Descendants(ns + "row").ToList();
+    Check("xlsx: a header row plus one row per receipt", xRows.Count, 3);
+
+    string CellText(string cellRef) => string.Concat(sheet.Descendants(ns + "c").First(c => (string?)c.Attribute("r") == cellRef).Descendants(ns + "t").Select(t => t.Value));
+    string CellValue(string cellRef) => sheet.Descendants(ns + "c").First(c => (string?)c.Attribute("r") == cellRef).Element(ns + "v")!.Value;
+    bool HasCell(string cellRef) => sheet.Descendants(ns + "c").Any(c => (string?)c.Attribute("r") == cellRef);
+
+    Check("xlsx: header", CellText("A1") + "|" + CellText("E1"), "Date|Total");
+    Check("xlsx: the date is a real Excel date (days since 1899-12-30)", CellValue("A2"), "46095");
+    Check("xlsx: total is a number", CellValue("E2"), "7.01");
+    Check("xlsx: tax is a number", CellValue("D2"), "0.53");
+    Check("xlsx: a missing tax leaves the cell empty", HasCell("D3"), false);
+    Check("xlsx: a large total keeps its value", CellValue("E3"), "1234.5");
+    Check("xlsx: text that looks like a formula is stored as text, not a formula",
+        sheet.Descendants(ns + "f").Any(), false);
+    Check("xlsx: the formula-looking vendor is kept as the text it was", CellText("B3"), "=HYPERLINK(\"http://evil\")");
+    Check("xlsx: markup characters survive and control characters are dropped", CellText("F3"), "R&D <test>  caf\u00E9");
+    Check("xlsx: the file path is exported", CellText("G2"), @"C:\Receipts\a.pdf");
+
+    // An empty list still gives a valid workbook with just the header
+    var xEmpty = XlsxExporter.Build(new List<Receipt>());
+    using var xEmptyZip = new System.IO.Compression.ZipArchive(new MemoryStream(xEmpty), System.IO.Compression.ZipArchiveMode.Read);
+    Check("xlsx: an empty list is still a workbook", xEmptyZip.GetEntry("xl/worksheets/sheet1.xml") != null, true);
+
+    // Writing to disk: replaces an older file and leaves no .tmp behind
+    var xPath = Path.Combine(Path.GetTempPath(), "aegis-xlsx-" + Guid.NewGuid().ToString("N") + ".xlsx");
+    File.WriteAllText(xPath, "old");
+    XlsxExporter.Export(xReceipts, xPath);
+    Check("xlsx: Export writes a zip file over the old one", File.ReadAllBytes(xPath).Take(2).SequenceEqual(new byte[] { 0x50, 0x4B }), true);
+    Check("xlsx: no temporary file is left behind", File.Exists(xPath + ".tmp"), false);
+    var sample = Environment.GetEnvironmentVariable("AEGIS_XLSX_SAMPLE");
+    if (!string.IsNullOrEmpty(sample)) File.Copy(xPath, sample, overwrite: true);
+    File.Delete(xPath);
+}
+// <<< xlsx export
+
 Console.WriteLine($"\n{passed} passed, {failed} failed");
 return failed == 0 ? 0 : 1;

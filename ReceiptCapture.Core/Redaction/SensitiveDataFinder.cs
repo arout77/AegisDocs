@@ -167,7 +167,11 @@ public static class SensitiveDataFinder
 
     // Only the date itself (group "d") is marked, not the "DOB:" label before it.
     private static readonly Regex DobRx = new(
-        @"(?:\bDOB|\bD\.O\.B\.?|\bdate[ ]+of[ ]+birth|\bbirth[ ]?date|\bborn)(?:[ \t]+on)?[ \t]*[:\-]?[ \t]*" +
+        @"(?:\bDOB|\bD\.O\.B\.?|\bdate[ ]+of[ ]+birth|\bbirth[ ]?date|\bborn)(?:[ \t]+on)?" +
+        // A format hint printed after the label, as on government forms: "Date of Birth (mm/dd/yyyy)".
+        @"(?:[ \t]*\((?:mm|dd|yyyy|yy|m|d)(?:[/\-. ](?:mm|dd|yyyy|yy|m|d)){1,2}\))?" +
+        // The value may sit in a box that OCR reads as the next line.
+        @"[ \t]*[:\-]?[ \t]*(?:\r?\n[ \t]*)?" +
         @"(?<d>\d{1,2}[/\-. ]\d{1,2}[/\-. ]\d{2,4}" +
         $@"|{Month}[ ]+\d{{1,2}}(?:st|nd|rd|th)?,?[ ]+\d{{4}}" +
         $@"|\d{{1,2}}(?:st|nd|rd|th)?[ ]+{Month},?[ ]+\d{{4}})", Opts);
