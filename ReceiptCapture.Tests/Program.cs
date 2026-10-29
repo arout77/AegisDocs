@@ -2958,6 +2958,28 @@ List<WordBox> FormField(string label, string value, double labelWidth = 160, dou
         PageTextBuilder.Build(new List<WordBox> { new("I", 100, 100, 10, h, 0), new("2", 150, 100, 18, h, 0), new("3", 195, 100, 18, h, 0) }).Text, "I 2 3");
     Check("comb: nothing to merge returns the same words",
         PageTextBuilder.Build(new List<WordBox> { new("Hello", 100, 100, 100, h, 0), new("world", 220, 100, 100, h, 0) }).Text, "Hello world");
+
+    // The real I-90 text: "Date ofBirth" (no space) and a Social Security label with no digits read at all
+    var i90 = new List<WordBox>
+    {
+        new("Date", 150, 400, 70, h, 0), new("ofBirth", 230, 400, 110, h, 0), new("(mm/dd/yyyy)", 350, 400, 230, h, 0), new("02/04/1977", 600, 400, 200, h, 0),
+        new("U.S.", 150, 800, 60, h, 1), new("Social", 220, 800, 90, h, 1), new("Security", 320, 800, 110, h, 1), new("Number", 440, 800, 110, h, 1),
+        new("(if", 560, 800, 40, h, 1), new("any)", 610, 800, 60, h, 1),
+        new("Part", 150, 1000, 70, h, 2), new("2.", 230, 1000, 40, h, 2),
+    };
+    var i90Regions = RedactionMapper.FindRegions(0, i90, new FindOptions());
+    Check("i90: 'Date ofBirth' (no space) still finds the birth date", i90Regions.Count(r => r.Kind == SensitiveKind.DateOfBirth), 1);
+    var i90Ssn = i90Regions.Where(r => r.Kind == SensitiveKind.Ssn).ToList();
+    Check("i90: an unread SSN box under the label is blacked out", i90Ssn.Count, 1);
+    if (i90Ssn.Count == 1)
+    {
+        Check("i90: the box sits under the label", i90Ssn[0].Y > 800 && i90Ssn[0].Y < 1000, true);
+        Check("i90: and does not reach the next heading", i90Ssn[0].Y + i90Ssn[0].Height < 1000 + h / 2, true);
+    }
+    // When the digits were read, there is one box on them and no extra one
+    var i90Read = i90.Concat(Row("", "214192208", 800).Skip(1).Select(w => w with { Y = 860 })).ToList();
+    Check("i90: no extra box when the SSN was read", RedactionMapper.FindRegions(0, i90Read, new FindOptions()).Count(r => r.Kind == SensitiveKind.Ssn), 1);
+    Check("i90: SSN option off means no box", RedactionMapper.FindRegions(0, i90, new FindOptions { Ssn = false }).Any(r => r.Kind == SensitiveKind.Ssn), false);
 }
 // <<< comb fields
 

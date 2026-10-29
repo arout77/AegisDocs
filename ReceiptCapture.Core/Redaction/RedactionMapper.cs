@@ -32,6 +32,16 @@ public static class RedactionMapper
                     left, top, right - left, bottom - top));
             }
         }
+
+        // A Social Security box whose digits OCR never read: black out the empty row under the label, unless a number was found there.
+        foreach (var box in LabeledFieldFinder.FindUnreadSsnBoxes(built, options))
+        {
+            bool alreadyCovered = regions.Any(r => r.Kind == SensitiveKind.Ssn
+                && r.X < box.X + box.Width && box.X < r.X + r.Width && r.Y < box.Y + box.Height && box.Y < r.Y + r.Height);
+            if (alreadyCovered) continue;
+            regions.Add(new RedactionRegion(page, box.Kind, "[box under the label; its digits were not read]",
+                Math.Max(0, box.X), Math.Max(0, box.Y), box.Width, box.Height));
+        }
         return regions;
     }
 }

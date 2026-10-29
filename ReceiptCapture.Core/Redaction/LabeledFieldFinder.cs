@@ -24,7 +24,7 @@ public static class LabeledFieldFinder
     private static readonly Spec[] Specs =
     {
         new(SensitiveKind.DateOfBirth,
-            new(@"^(?:DOB|DATE OF BIRTH|BIRTH ?DATE|BIRTH|BORN)$", Opts),
+            new(@"^(?:DOB|DATE ?OF ?BIRTH|BIRTH ?DATE|BIRTH|BORN)$", Opts),
             IsDate, o => o.DateOfBirth),
 
         new(SensitiveKind.DriversLicense,
@@ -115,6 +115,65 @@ public static class LabeledFieldFinder
                 found.Add(new SensitiveMatch(label.Spec.Kind, page.Spans[first].Start, page.Spans[last].End - page.Spans[first].Start));
                 runStart = k;
             }
+        }
+        return found;
+    }
+
+    /// <summary>A rectangle (page-image pixels) where a value should be but OCR read nothing.</summary>
+    public sealed record UnreadBox(SensitiveKind Kind, double X, double Y, double Width, double Height);
+
+    private static readonly Regex SsnLabel = new(@"^(?:SSN|SS #?|SOCIAL SECURITY(?: NUMBER)?)$", Opts);
+
+    /// <summary>
+    /// Forms with one box per digit often come back from OCR with the label but none of the digits.
+    /// Nothing can match a number that was never read, so when a Social Security label has no readable words in the
+    /// row under it (or beside it), that row is returned as a box to black out. The person reviews it like any other hit.
+    /// </summary>
+    public static IReadOnlyList<UnreadBox> FindUnreadSsnBoxes(PageTextBuilder.Built page, FindOptions options)
+    {
+        var found = new List<UnreadBox>();
+        var words = page.Words;
+        if (!options.Ssn || words.Count == 0) return found;
+
+        for (int i = 0; i < words.Count; i++)
+        {
+            int last = -1;
+            var text = new StringBuilder();
+            for (int j = i; j < words.Count && j < i + 6; j++)
+            {
+                if (j > i && Math.Abs((words[j].Y + words[j].Height / 2) - (words[j - 1].Y + words[j - 1].Height / 2)) > 0.6 * words[j].Height) break;
+                if (j > i && Gap(words[j - 1], words[j]) > 1.5 * Math.Max(words[j].Height, words[j - 1].Height)) break;
+                text.Append(' ').Append(words[j].Text);
+                if (SsnLabel.IsMatch(Normalize(text.ToString()))) last = j;
+            }
+            if (last < 0) continue;
+
+            var label = Enumerable.Range(i, last - i + 1).Select(k => words[k]).ToList();
+            double left = label.Min(w => w.X), right = label.Max(w => w.X + w.Width);
+            double h = label.Average(w => w.Height);
+            double cy = label.Average(w => w.Y + w.Height / 2);
+            // The label may be followed by "(if any)" on the same row: that belongs to the label, so extend over it
+            int next = last + 1;
+            while (next < words.Count && Math.Abs(words[next].Y + words[next].Height / 2 - cy) <= 0.6 * h
+                   && words[next].X >= right - 1 && Gap(words[next - 1], words[next]) <= 1.5 * h
+                   && words[next].Text.Any(ch => char.IsLetter(ch) || ch == '(' || ch == ')'))
+            { right = Math.Max(right, words[next].X + words[next].Width); next++; }
+
+            // The row under the label, as wide as the label plus some room for the boxes
+            double boxLeft = left, boxRight = right + 0.6 * (right - left);
+            double boxTop = cy + 0.6 * h, boxBottom = cy + 2.5 * h;
+
+            bool somethingRead = words.Any(w =>
+            {
+                double wx = w.X + w.Width / 2, wy = w.Y + w.Height / 2;
+                bool inUnder = wx >= boxLeft && wx <= boxRight && wy >= boxTop && wy <= boxBottom;
+                bool inBeside = wy >= cy - 0.6 * h && wy <= cy + 0.6 * h && wx > right && wx <= right + 0.8 * (right - left)
+                                && w.Text.Any(char.IsDigit);
+                return inUnder || inBeside;
+            });
+            if (somethingRead) continue;
+
+            found.Add(new UnreadBox(SensitiveKind.Ssn, boxLeft, boxTop, boxRight - boxLeft, boxBottom - boxTop));
         }
         return found;
     }
