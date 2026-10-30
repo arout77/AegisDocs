@@ -18,7 +18,7 @@
     <AssemblyTitle>Aegis Docs</AssemblyTitle>
     <Description>Aegis Docs</Description>
     <ApplicationIcon>Assets\AegisDocs.ico</ApplicationIcon>
-    <Version>0.1.0</Version>
+    <Version>1.0.6</Version>
   </PropertyGroup>
 
   <!-- WPF projects leave these out of the automatic "using" list, but the code relies on them. -->

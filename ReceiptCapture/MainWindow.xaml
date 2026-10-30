@@ -38,7 +38,7 @@
         </TabControl>
 
         <!-- Help and light / dark switch, sitting in the empty space of the tab strip -->
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,5,18,0">
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,12,18,0">
             <Button x:Name="UpdateButton" Content="Updates" Style="{StaticResource ChromeButton}" Padding="14,6"
                     ToolTip="Check for a new version of Aegis Docs" Click="UpdateButton_Click"/>
             <Button Content="Help" Style="{StaticResource ChromeButton}" Margin="8,0,0,0" Padding="14,6"
