@@ -102,7 +102,7 @@
         <Border Grid.Column="2" Style="{StaticResource Card}">
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel>
-                    <TextBlock Text="Secure shredder" FontSize="16" FontWeight="SemiBold"
+                    <TextBlock Text="Secure file shredder" FontSize="16" FontWeight="SemiBold"
                                Foreground="{DynamicResource InkBrush}" Margin="0,0,0,8"/>
                     <TextBlock Style="{StaticResource Hint}"
                                Text="Overwrites each file with random data, empties it, renames it, and then deletes it. It skips the Recycle Bin, so what you shred cannot be recovered with undelete tools."/>

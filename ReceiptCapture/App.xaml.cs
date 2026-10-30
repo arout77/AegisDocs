@@ -13,12 +13,20 @@ public partial class App : Application
         Vault.ClearFolder(AppPaths.TempDir);   // readable copies left behind by a crash or a viewer that was still open
         Vault.ClearFolder(AppPaths.UpdatesDir);   // installers from an update that has since been installed
         base.OnStartup(e);
+        try { Workflows.WorkflowEngine.Instance.Start(); }   // folder watching runs whether or not the tab is ever opened
+        catch (Exception ex) { LogStartupProblem("Workflows could not start", ex); }
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
+        Workflows.WorkflowEngine.Instance.Dispose();
         Vault.ClearFolder(AppPaths.TempDir);
         base.OnExit(e);
+    }
+
+    private static void LogStartupProblem(string what, Exception ex)
+    {
+        try { File.AppendAllText(AppPaths.LogFile, $"[{DateTime.Now:u}] {what}: {ex}{Environment.NewLine}"); } catch (IOException) { }
     }
 
     // Last line of defence: log the error and keep the app (and the user's data) alive.

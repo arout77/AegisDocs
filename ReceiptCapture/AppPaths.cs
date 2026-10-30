@@ -1,3 +1,5 @@
+using ReceiptCapture.Core.Security;
+
 namespace ReceiptCapture;
 
 /// <summary>Everything the app writes lives under %LocalAppData%\ReceiptCapture.</summary>
@@ -24,4 +26,10 @@ public static class AppPaths
 
     /// <summary>Short-lived readable copies of locked files (a receipt being viewed, a recording being played). Emptied at start and exit.</summary>
     public static string TempDir => Path.Combine(DataDir, "temp");
+
+    /// <summary>The saved workflows (names, folders, what to check). Locked, because custom terms can be client names.</summary>
+    public static string WorkflowsFile => Path.Combine(DataDir, "workflows.json" + Vault.SealedSuffix);
+
+    /// <summary>Fingerprints of files each workflow has already handled, so a restart doesn't redo them.</summary>
+    public static string WorkflowStateFile => Path.Combine(DataDir, "workflow-state.json");
 }
