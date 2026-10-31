@@ -13,6 +13,7 @@
                 <!-- Our palette. AppTheme.cs replaces this entry with Dark.xaml when dark mode is active. -->
                 <ResourceDictionary Source="Themes/Light.xaml" />
                 <!-- Our shared styles (cards, buttons, inputs). -->
+                <ResourceDictionary Source="Themes/Icons.xaml" />
                 <ResourceDictionary Source="Themes/Shared.xaml" />
             </ResourceDictionary.MergedDictionaries>
 

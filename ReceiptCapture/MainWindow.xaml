@@ -10,9 +10,91 @@
         FontFamily="{DynamicResource AppFont}" FontSize="13">
 
     <Grid>
-        <TabControl Style="{StaticResource NavTabControl}">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- ================= Sidebar: every tool, grouped. Collapses to an icon rail on small windows. ================= -->
+        <Border x:Name="Sidebar" Grid.Column="0" Width="232" Background="{DynamicResource ChromeBrush}"
+                local:Nav.IsCollapsed="False" ClipToBounds="True">
+            <Grid Margin="10,0,10,10">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- Brand -->
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="9,18,0,8">
+                    <Image Source="Assets/AegisDocs-logo.png" Width="26" Height="26"
+                           RenderOptions.BitmapScalingMode="HighQuality"/>
+                    <TextBlock x:Name="BrandName" Text="Aegis Docs" Margin="12,0,0,0" VerticalAlignment="Center"
+                               FontFamily="{DynamicResource HeadingFont}" FontSize="15"
+                               Foreground="{DynamicResource ChromeInkBrush}">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Style.Triggers>
+                                    <Trigger Property="local:Nav.IsCollapsed" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </StackPanel>
+
+                <!-- Pages. The order here is the order of the tabs below (Ctrl+1 to Ctrl+9 jump to them). -->
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
+                    <StackPanel x:Name="NavHost">
+                        <TextBlock Text="ORGANIZE" Style="{StaticResource SidebarSection}" Margin="14,10,0,5"/>
+                        <RadioButton Content="Documents" Tag="{StaticResource IconDocuments}" IsChecked="True" GroupName="AegisNav" Style="{StaticResource SidebarNavItem}"/>
+                        <RadioButton x:Name="WorkflowsNav" Content="Workflows" Tag="{StaticResource IconWorkflows}" GroupName="AegisNav" Style="{StaticResource SidebarNavItem}"/>
+
+                        <TextBlock Text="PROTECT" Style="{StaticResource SidebarSection}"/>
+                        <Border Style="{StaticResource SidebarRule}"/>
+                        <RadioButton Content="Redact" Tag="{StaticResource IconRedact}" GroupName="AegisNav" Style="{StaticResource SidebarNavItem}"/>
+                        <RadioButton Content="Compliance" Tag="{StaticResource IconCompliance}" GroupName="AegisNav" Style="{StaticResource SidebarNavItem}"/>
+                        <RadioButton Content="Shredder" Tag="{StaticResource IconShredder}" GroupName="AegisNav" Style="{StaticResource SidebarNavItem}"/>
+
+                        <TextBlock Text="VERIFY" Style="{StaticResource SidebarSection}"/>
+                        <Border Style="{StaticResource SidebarRule}"/>
+                        <RadioButton Content="Compare" Tag="{StaticResource IconCompare}" GroupName="AegisNav" Style="{StaticResource SidebarNavItem}"/>
+                        <RadioButton Content="Integrity" Tag="{StaticResource IconIntegrity}" GroupName="AegisNav" Style="{StaticResource SidebarNavItem}"/>
+
+                        <TextBlock Text="CAPTURE" Style="{StaticResource SidebarSection}"/>
+                        <Border Style="{StaticResource SidebarRule}"/>
+                        <RadioButton Content="Receipts" Tag="{StaticResource IconReceipts}" GroupName="AegisNav" Style="{StaticResource SidebarNavItem}"/>
+                        <RadioButton Content="Meetings" Tag="{StaticResource IconMeetings}" GroupName="AegisNav" Style="{StaticResource SidebarNavItem}"/>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- Foot: updates, help, theme, collapse -->
+                <StackPanel Grid.Row="2" Margin="0,6,0,0">
+                    <Border Height="1" Background="{DynamicResource ChromeLineBrush}" Margin="4,0,4,8"/>
+                    <Button x:Name="UpdateButton" Content="Updates" Tag="{StaticResource IconUpdates}"
+                            Style="{StaticResource SidebarUtilButton}"
+                            ToolTip="Check for a new version of Aegis Docs" Click="UpdateButton_Click"/>
+                    <Button x:Name="HelpButton" Content="Help" Tag="{StaticResource IconHelp}"
+                            Style="{StaticResource SidebarUtilButton}"
+                            ToolTip="How to use Aegis Docs (F1)" Click="HelpButton_Click"/>
+                    <Button x:Name="ThemeButton" Tag="{StaticResource IconTheme}"
+                            Style="{StaticResource SidebarUtilButton}"
+                            ToolTip="Switch between Auto (follows Windows), Light and Dark" Click="ThemeButton_Click"/>
+                    <Button x:Name="CollapseButton" Content="Collapse" Tag="{StaticResource IconChevronLeft}"
+                            Style="{StaticResource SidebarUtilButton}"
+                            ToolTip="Collapse the sidebar (Ctrl+B)" Click="CollapseButton_Click"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ================= The pages. Same order as the sidebar. ================= -->
+        <TabControl x:Name="Pages" Grid.Column="1" Style="{StaticResource NavTabControl}">
             <TabItem Header="Documents" Style="{StaticResource NavTabItem}">
                 <local:DocumentsView/>
+            </TabItem>
+            <TabItem Header="Workflows" Style="{StaticResource NavTabItem}">
+                <local:WorkflowsView/>
             </TabItem>
             <TabItem Header="Redact" Style="{StaticResource NavTabItem}">
                 <local:RedactionView/>
@@ -20,17 +102,14 @@
             <TabItem Header="Compliance" Style="{StaticResource NavTabItem}">
                 <local:ComplianceView/>
             </TabItem>
+            <TabItem Header="Shredder" Style="{StaticResource NavTabItem}">
+                <local:ShredderView/>
+            </TabItem>
             <TabItem Header="Compare" Style="{StaticResource NavTabItem}">
                 <local:CompareView/>
             </TabItem>
             <TabItem Header="Integrity" Style="{StaticResource NavTabItem}">
                 <local:IntegrityView/>
-            </TabItem>
-            <TabItem Header="Shredder" Style="{StaticResource NavTabItem}">
-                <local:ShredderView/>
-            </TabItem>
-            <TabItem Header="Workflows" Style="{StaticResource NavTabItem}">
-                <local:WorkflowsView/>
             </TabItem>
             <TabItem Header="Receipts" Style="{StaticResource NavTabItem}">
                 <local:ReceiptsView/>
@@ -39,16 +118,5 @@
                 <local:MeetingsView x:Name="MeetingsTab"/>
             </TabItem>
         </TabControl>
-
-        <!-- Help and light / dark switch, sitting in the empty space of the tab strip -->
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,12,18,0">
-            <Button x:Name="UpdateButton" Content="Updates" Style="{StaticResource ChromeButton}" Padding="14,6"
-                    ToolTip="Check for a new version of Aegis Docs" Click="UpdateButton_Click"/>
-            <Button Content="Help" Style="{StaticResource ChromeButton}" Margin="8,0,0,0" Padding="14,6"
-                    ToolTip="How to use Aegis Docs (F1)" Click="HelpButton_Click"/>
-            <Button x:Name="ThemeButton" Style="{StaticResource ChromeButton}" Margin="8,0,0,0" Padding="14,6"
-                    ToolTip="Switch between Auto (follows Windows), Light and Dark"
-                    Click="ThemeButton_Click"/>
-        </StackPanel>
     </Grid>
 </Window>

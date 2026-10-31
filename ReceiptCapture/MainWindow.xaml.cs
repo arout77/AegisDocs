@@ -1,15 +1,50 @@
 using System.Windows;
+using System.Windows.Media.Animation;
+using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Threading;
 using ReceiptCapture.Services;
 
 namespace ReceiptCapture;
 
-/// <summary>Hosts one tab per tool. Each tool is a self-contained view with its own view model.</summary>
+/// <summary>
+/// Hosts one page per tool, chosen from the sidebar. Each tool is a self-contained view with its own view model.
+/// The sidebar collapses to an icon rail when the window is narrow (or when the person collapses it).
+/// </summary>
 public partial class MainWindow : Window
 {
+    private const double ExpandedWidth = 232;
+    private const double CollapsedWidth = 66;
+    private const double AutoCollapseBelow = 1180;   // window width under which the sidebar becomes the icon rail
+
+    private readonly List<RadioButton> _navItems = new();
+    private bool _userCollapsed;
+    private bool _collapsed;
+    private bool _sidebarReady;
+
     public MainWindow()
     {
         InitializeComponent();
+
+        // Sidebar: one item per page, in the same order as the pages.
+        CollectNavItems(NavHost);
+        NavHost.AddHandler(System.Windows.Controls.Primitives.ToggleButton.CheckedEvent, new RoutedEventHandler(NavItem_Checked));
+        _userCollapsed = SidebarSettings.LoadCollapsed();
+        SizeChanged += (_, _) => ApplySidebar(animate: true);
+        Loaded += (_, _) =>
+        {
+            _sidebarReady = true;
+            ApplySidebar(animate: false);
+        };
+
+        // A green dot on Workflows while at least one folder is being watched.
+        var badgeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        badgeTimer.Tick += (_, _) => UpdateWorkflowBadge();
+        Loaded += (_, _) => { UpdateWorkflowBadge(); badgeTimer.Start(); };
+        Closed += (_, _) => badgeTimer.Stop();
+        Nav.SetBadgeBrush(WorkflowsNav, new SolidColorBrush(Color.FromRgb(0x34, 0xD3, 0x99)));
+        Nav.SetBadgeBrush(UpdateButton, new SolidColorBrush(Color.FromRgb(0xFB, 0xBF, 0x24)));
 
         SourceInitialized += (_, _) => AppTheme.ApplyTitleBar(this);
         AppTheme.Changed += OnThemeChanged;
@@ -20,6 +55,18 @@ public partial class MainWindow : Window
             if (e.Key == Key.F1)
             {
                 ShowHelp();
+                e.Handled = true;
+            }
+            else if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.B)
+            {
+                ToggleSidebar();
+                e.Handled = true;
+            }
+            else if (Keyboard.Modifiers == ModifierKeys.Control && e.Key is >= Key.D1 and <= Key.D9)
+            {
+                // Ctrl+1 ... Ctrl+9 jump straight to a page.
+                int index = e.Key - Key.D1;
+                if (index < _navItems.Count) _navItems[index].IsChecked = true;
                 e.Handled = true;
             }
         };
@@ -60,7 +107,7 @@ public partial class MainWindow : Window
     {
         bool waiting = Updater.IsUpdateWaiting;
         UpdateButton.Content = waiting ? "Update available" : "Updates";
-        UpdateButton.Style = (Style)FindResource(waiting ? "PrimaryButton" : "SecondaryButton");
+        Nav.SetBadge(UpdateButton, waiting);
     }
 
     // Never lose a meeting: if one is being recorded, ask first, then stop and save it before the app closes.
@@ -111,6 +158,75 @@ public partial class MainWindow : Window
             _ => "Dark",
         };
         ThemeButton.Content = $"Theme: {label}";
+    }
+
+    // ------------------------------------------------------------------
+    // Sidebar
+    // ------------------------------------------------------------------
+    private void CollectNavItems(DependencyObject parent)
+    {
+        foreach (var child in LogicalTreeHelper.GetChildren(parent))
+        {
+            if (child is RadioButton radio) _navItems.Add(radio);
+            else if (child is DependencyObject node) CollectNavItems(node);
+        }
+    }
+
+    private void NavItem_Checked(object sender, RoutedEventArgs e)
+    {
+        if (e.OriginalSource is not RadioButton radio) return;
+        int index = _navItems.IndexOf(radio);
+        if (index >= 0 && index < Pages.Items.Count) Pages.SelectedIndex = index;
+    }
+
+    private void UpdateWorkflowBadge()
+    {
+        try
+        {
+            var engine = Workflows.WorkflowEngine.Instance;
+            Nav.SetBadge(WorkflowsNav, engine.Store.Workflows.Any(w => engine.IsWatching(w.Id)));
+        }
+        catch (Exception)
+        {
+            // A status dot is a nicety: never let it get in the way.
+        }
+    }
+
+    private void ToggleSidebar()
+    {
+        _userCollapsed = !_userCollapsed;
+        SidebarSettings.SaveCollapsed(_userCollapsed);
+        ApplySidebar(animate: true);
+    }
+
+    private void CollapseButton_Click(object sender, RoutedEventArgs e) => ToggleSidebar();
+
+    /// <summary>Collapsed when the person chose that, or when the window is too narrow to spare the room.</summary>
+    private void ApplySidebar(bool animate)
+    {
+        if (!_sidebarReady) return;
+
+        bool collapsed = _userCollapsed || ActualWidth < AutoCollapseBelow;
+        if (animate && collapsed == _collapsed) return;
+        _collapsed = collapsed;
+
+        Nav.SetIsCollapsed(Sidebar, collapsed);
+        CollapseButton.Content = collapsed ? "Expand" : "Collapse";
+        CollapseButton.Tag = FindResource(collapsed ? "IconChevronRight" : "IconChevronLeft");
+        CollapseButton.ToolTip = collapsed ? "Expand the sidebar (Ctrl+B)" : "Collapse the sidebar (Ctrl+B)";
+
+        double target = collapsed ? CollapsedWidth : ExpandedWidth;
+        if (!animate)
+        {
+            Sidebar.BeginAnimation(WidthProperty, null);
+            Sidebar.Width = target;
+            return;
+        }
+
+        Sidebar.BeginAnimation(WidthProperty, new DoubleAnimation(target, TimeSpan.FromMilliseconds(180))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+        });
     }
 
     private void ThemeButton_Click(object sender, RoutedEventArgs e) => AppTheme.Cycle();
